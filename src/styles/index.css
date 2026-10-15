@@ -1,0 +1,376 @@
+@import 'tailwindcss';
+
+/*
+ * 設計代幣（03 §4）。品牌色組由 ThemeProvider 於執行期以 CSS 變數覆寫（07 §7.4、BR-32），
+ * 因此使用 static：不論是否被 utility 引用，一律輸出為 :root 變數，供行內樣式與自訂 CSS 使用。
+ */
+@theme static {
+  /* 中性色與語意色 */
+  --color-bg: #ffffff;
+  --color-bg-subtle: #fafafa;
+  --color-bg-muted: #f4f4f5;
+  --color-border: #e4e4e7;
+  --color-border-strong: #d4d4d8;
+  --color-border-input: #8a8a93;
+  --color-text: #18181b;
+  --color-text-sub: #52525b;
+  --color-text-muted: #6b6b75;
+  --color-text-disabled: #a1a1aa;
+  --color-success: #15803d;
+  --color-success-soft: #f0fdf4;
+  --color-warning: #b45309;
+  --color-warning-soft: #fffbeb;
+  --color-danger: #b91c1c;
+  --color-danger-soft: #fef2f2;
+  --color-info: #1d4ed8;
+  --color-info-soft: #eff6ff;
+  /* 危險按鈕 hover / 遮罩（新增；不隨品牌色變動） */
+  --color-danger-hover: #991b1b;
+  --color-scrim: rgb(24 24 27 / 0.5);
+
+  /* 品牌主題：預設 red（辣椒紅） */
+  --color-brand: #d93a22;
+  --color-on-brand: #ffffff;
+  --color-brand-hover: #bf331e;
+  --color-brand-soft: #fcefed;
+  --color-brand-soft-strong: #f8dcd7;
+  --color-brand-text: #c3341f;
+
+  /* 圓角 / 陰影 */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
+  --radius-pill: 999px;
+  --shadow-sm: 0 1px 2px rgba(24, 24, 27, 0.06);
+  --shadow-md: 0 4px 16px rgba(24, 24, 27, 0.08);
+  --shadow-lg: 0 12px 32px rgba(24, 24, 27, 0.12);
+
+  /* 字體 */
+  --font-sans: 'Noto Sans TC', 'PingFang TC', 'Microsoft JhengHei', system-ui, sans-serif;
+
+  /*
+   * 字級（03 §4.2；rem，隨 html 基準字級縮放：觸控面板 / 大字模式只改 html font-size）。
+   * body 16/24、small 14/20、caption 12/16 直接用 Tailwind 的 text-base / text-sm / text-xs。
+   */
+  --text-display: 1.75rem;
+  --text-display--line-height: 2.25rem;
+  --text-h1: 1.5rem;
+  --text-h1--line-height: 2rem;
+  --text-h2: 1.25rem;
+  --text-h2--line-height: 1.75rem;
+  --text-h3: 1.125rem;
+  --text-h3--line-height: 1.625rem;
+
+  /* 動效（03 §4.5）：微互動 120ms、標準 200ms、面板 320ms */
+  --ease-zo: cubic-bezier(0.2, 0, 0, 1);
+  --animate-zo-fade-in: zo-fade-in 200ms var(--ease-zo);
+  --animate-zo-fade-out: zo-fade-out 200ms var(--ease-zo) forwards;
+  --animate-zo-pop-in: zo-pop-in 200ms var(--ease-zo);
+  --animate-zo-pop-out: zo-pop-out 200ms var(--ease-zo) forwards;
+  --animate-zo-slide-up: zo-slide-up 320ms var(--ease-zo);
+  --animate-zo-slide-down: zo-slide-down 320ms var(--ease-zo) forwards;
+  --animate-zo-slide-in-right: zo-slide-in-right 320ms var(--ease-zo);
+  --animate-zo-slide-out-right: zo-slide-out-right 320ms var(--ease-zo) forwards;
+  --animate-zo-toast-in: zo-toast-in 200ms var(--ease-zo);
+}
+
+@keyframes zo-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes zo-fade-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+@keyframes zo-pop-in {
+  from {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+@keyframes zo-pop-out {
+  from {
+    opacity: 1;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+}
+@keyframes zo-slide-up {
+  from {
+    opacity: 0.6;
+    transform: translateY(24px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes zo-slide-down {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0.6;
+    transform: translateY(24px);
+  }
+}
+@keyframes zo-slide-in-right {
+  from {
+    transform: translateX(24px);
+    opacity: 0.6;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+@keyframes zo-slide-out-right {
+  from {
+    transform: translateX(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateX(24px);
+    opacity: 0.6;
+  }
+}
+@keyframes zo-toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* 觸控面板模式（kiosk）：以 html[data-mode='kiosk'] 切換，元件用 kiosk: 變體微調 */
+@custom-variant kiosk (html[data-mode='kiosk'] &);
+
+:root {
+  /* 字級（font-size / line-height）；rem 以尊重瀏覽器字級與 html 基準字級（WCAG 1.4.4） */
+  --fs-display: 1.75rem;
+  --lh-display: 2.25rem;
+  --fs-h1: 1.5rem;
+  --lh-h1: 2rem;
+  --fs-h2: 1.25rem;
+  --lh-h2: 1.75rem;
+  --fs-h3: 1.125rem;
+  --lh-h3: 1.625rem;
+  --fs-body: 1rem;
+  --lh-body: 1.5rem;
+  --fs-small: 0.875rem;
+  --lh-small: 1.25rem;
+  --fs-caption: 0.75rem;
+  --lh-caption: 1rem;
+
+  /* 間距（4px 基準，03 §4.3）；Tailwind 的 p-1 ～ p-16 與此一致 */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-7: 32px;
+  --space-8: 40px;
+  --space-9: 48px;
+  --space-10: 64px;
+
+  /* 層級 z-index（03 §4.4）：元件以 z-50（modal）與 z-60（toast）使用 */
+  --z-base: 0;
+  --z-sticky: 10;
+  --z-header: 20;
+  --z-bottom-bar: 30;
+  --z-drawer: 40;
+  --z-modal: 50;
+  --z-toast: 60;
+  --z-demo: 70;
+
+  /* 版面常數（4px 基準）與互動目標（觸控面板模式改為 56 / 64） */
+  --topbar-h: 64px;
+  --appbar-h: 56px;
+  --panel-w: 360px;
+  --hit-size: 44px;
+  --hit-size-lg: 48px;
+  --chip-h: 40px;
+  --icon-size: 20px;
+  --safe-bottom: max(env(safe-area-inset-bottom, 0px), 12px);
+
+  /*
+   * Toast 的底部偏移：features 依目前畫面浮動元件（CartBar、底部 Tab）設定於 :root，
+   * 例如 document.documentElement.style.setProperty('--toast-offset-bottom', '156px')。
+   */
+  --toast-offset-bottom: calc(var(--safe-bottom) + var(--bottom-tab-h, 0px) + 12px);
+
+  /* 焦點可見時不被 sticky 元件遮住（WCAG 2.4.11）：features 可依實際 sticky 高度覆寫 */
+  --scroll-pad-top: 8.75rem;
+  --scroll-pad-bottom: 2rem;
+}
+
+/* 觸控面板：目標 ≥ 56（主要按鈕 ≥ 64）、基準字級 +12.5%（03 §5.6） */
+html[data-mode='kiosk'] {
+  --hit-size: 56px;
+  --hit-size-lg: 64px;
+  --chip-h: 56px;
+  --icon-size: 28px;
+  --panel-w: 400px;
+  --topbar-h: 88px;
+  font-size: 112.5%;
+}
+
+/* 大字模式（偏好 largeText；FR-SY-17）：html[data-textscale='1']，基準字級 +12.5%，版面以 rem 自然重排 */
+html[data-textscale='1'] {
+  font-size: 112.5%;
+}
+/* 觸控面板再開大字：+12.5% 再放大一階 */
+html[data-mode='kiosk'][data-textscale='1'] {
+  font-size: 125%;
+}
+
+html {
+  color-scheme: light;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  scroll-padding-top: var(--scroll-pad-top);
+  scroll-padding-bottom: var(--scroll-pad-bottom);
+}
+
+body {
+  margin: 0;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  font-size: var(--fs-body);
+  line-height: var(--lh-body);
+  -webkit-font-smoothing: antialiased;
+}
+
+@layer base {
+  /* 焦點外框（03 §10.2）：不得 outline: none 而不補替代 */
+  :focus-visible {
+    outline: 2px solid var(--color-brand-text);
+    outline-offset: 2px;
+  }
+
+  /* 程式化聚焦的容器（頁面標題、對話框）不顯示外框；可操作元件仍保留 :focus-visible */
+  :is(h1, h2, h3, h4, main, section, [role='dialog'], [role='alertdialog'])[tabindex='-1']:focus {
+    outline: none;
+  }
+
+  /* 觸控：避免雙擊縮放延遲、取消點擊高亮（03 §5.6） */
+  a,
+  button,
+  input,
+  select,
+  textarea,
+  label,
+  summary,
+  [role='button'],
+  [role='radio'],
+  [role='switch'] {
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  img {
+    -webkit-touch-callout: none;
+  }
+
+  /* 觸控面板：按鈕與連結不可選取文字、不跳出長按選單 */
+  html[data-mode='kiosk'] :is(button, a) {
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+  }
+}
+
+/* 主色填滿的元件（主要 / 危險按鈕、步進器 +）：雙層焦點環（03 §10.2），底色不論品牌色皆可辨識 */
+@utility focus-ring-fill {
+  &:focus-visible {
+    outline: none;
+    box-shadow:
+      0 0 0 2px var(--color-bg),
+      0 0 0 4px var(--color-brand-text);
+  }
+  @media (forced-colors: active) {
+    &:focus-visible {
+      outline: 2px solid Highlight;
+      outline-offset: 2px;
+    }
+  }
+}
+
+/* 視覺小於最小目標的控制項：以置中的透明偽元素擴大點擊範圍至 --hit-size（03 §4.3），不影響版面 */
+@utility hit-area {
+  position: relative;
+  &::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: max(100%, var(--hit-size));
+    height: max(100%, var(--hit-size));
+    transform: translate(-50%, -50%);
+  }
+}
+
+/*
+ * .sr-only 由 Tailwind 的 sr-only utility 提供（VisuallyHidden 元件使用，必定輸出）；
+ * 不在此重複定義，避免同層級後定義者蓋過 not-sr-only / focus:not-sr-only（跳過連結「取得焦點才顯示」）。
+ */
+
+/*
+ * 減少動態（03 §4.5、§10.5）：
+ * - 跟隨系統 prefers-reduced-motion，除非使用者在偏好中明確選「不減少」（html[data-motion='off']）
+ * - 使用者在偏好中選「減少」時由 app 層寫入 html[data-motion='on']
+ * 動畫改為極短時間而不是移除，讓 animationend / transitionend 照常觸發（Radix Presence 依此卸載）。
+ */
+@media (prefers-reduced-motion: reduce) {
+  html:not([data-motion='off']) *,
+  html:not([data-motion='off']) *::before,
+  html:not([data-motion='off']) *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+html[data-motion='on'] *,
+html[data-motion='on'] *::before,
+html[data-motion='on'] *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
+}
+
+/* 高對比（forced-colors）：焦點與佔位圖塊邊框改用系統色（03 §10.5） */
+@media (forced-colors: active) {
+  :focus-visible {
+    outline-color: Highlight;
+  }
+}
+
+@media print {
+  [data-zo-toast-viewport] {
+    display: none;
+  }
+}
