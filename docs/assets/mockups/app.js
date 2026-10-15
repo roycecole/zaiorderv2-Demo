@@ -159,8 +159,6 @@
 
   const MENU = buildMenu(P.data);
   const byId = (id) => MENU.find((p) => p.id === id) || FULL.find((p) => p.id === id);
-  const isBare = (p) => !p.emoji && !p.desc && !p.tags.length && !p.groups.length;
-  const DATASET_MINIMAL = MENU.every((p) => !p.emoji && !p.desc && !p.tags.length && !p.groups.length);
   const HAS_HOT = MENU.some((p) => p.tags.includes('hot'));
   if (P.focus && !MENU.some((p) => p.id === P.focus)) P.focus = null;
 
@@ -229,7 +227,7 @@
     memoryPref: true, /* 「記住上次點過的選項」 */
     textLarge: false, /* 「大字模式」（文字 ×1.125） */
     motion: 'system', /* 「減少動態」：system | on | off */
-    fav: [],
+    fav: P.login === 'member' && !KIOSK ? ['lurou', 'beef_noodle'] : [], /* 會員示範：兩項已收藏（其餘為空心愛心） */
     activeCard: null, /* roving tabindex：目前的商品卡 */
     returnKeys: [], /* 浮層關閉後還原焦點用 */
     large: false, /* kiosk 大字 */
@@ -495,11 +493,10 @@
         '<button type="button" class="btn-add btn-add--icon" data-action="add" data-id="' + p.id + '" data-key="add:' + p.id + '"' + tabAttr(tab) +
           ' aria-label="調整選項：' + esc(p.name) + '">' + ICON('plus', KIOSK ? 28 : 18) + badge + '</button>';
     } else {
-      const icon = DATASET_MINIMAL;
       const badge = q > 0 ? '<span class="btn-add__badge tnum" aria-hidden="true">' + q + '</span>' : '';
       const label = '加入 ' + esc(p.name) + (q > 0 ? '（購物車已有 ' + q + ' 份）' : '');
-      inner = '<button type="button" class="btn-add' + (icon ? ' btn-add--icon' : '') + '" data-action="add" data-id="' + p.id + '" data-key="add:' + p.id + '"' + tabAttr(tab) +
-        AKS('a') + ' aria-label="' + label + '">' + ICON('plus', icon ? (KIOSK ? 28 : 18) : (KIOSK ? 24 : 16)) + (icon ? '' : '<span>加入</span>') + badge + '</button>';
+      inner = '<button type="button" class="btn-add" data-action="add" data-id="' + p.id + '" data-key="add:' + p.id + '"' + tabAttr(tab) +
+        AKS('a') + ' aria-label="' + label + '">' + ICON('plus', KIOSK ? 24 : 16) + '<span>加入</span>' + badge + '</button>';
     }
     return '<div class="act' + (memOpt && !p.soldOut ? ' act--mem' : '') + '" data-action="noop">' + inner + '</div>';
   }
@@ -517,12 +514,25 @@
     return '<div class="pcard__hint" aria-hidden="true">' + parts.join('<i class="sep">·</i>') + '</div>';
   }
 
+  /* 收藏愛心（會員才有；訪客與觸控面板沒有）：LIST 與 GRID 相同，一律在品名「前面」，不浮在圖片上。
+     圖示 18px、按鈕 36px 的圓形（熱區以 ::after 擴大到 44）；負 margin 讓圖示左緣與描述、價格的左緣對齊 */
+  function favoriteHTML(p, tab) {
+    if (KIOSK || P.login !== 'member') return '';
+    const on = state.fav.includes(p.id);
+    return '<button type="button" class="favbtn" data-action="fav" data-id="' + p.id + '" data-key="fav:' + p.id + '"' + tabAttr(tab) + AKS('f') +
+      ' aria-pressed="' + on + '" aria-label="' + (on ? '取消收藏 ' : '收藏 ') + esc(p.name) + '">' + ICON('heart', 18, on ? 'is-filled' : '') + '</button>';
+  }
+
+  /* 商品卡（03 §6.6）：LIST 與 GRID 共用同一套規則——
+     品名列「♥ 品名 標籤…」→（描述、上次選擇）→ 底列：價格靠左、動作靠右，跨滿內容寬度並貼卡片底端。
+     LIST = 上方兩欄（左：文字，右：縮圖 88×88，可無）＋ 跨滿全寬的底列（動作右緣 = 縮圖右緣）；
+     GRID = 圖片（標籤在左上角）→ 品名列 → 底列（左右緣與圖片齊）。
+     精簡卡（無圖、無描述、無標籤）就是沒有縮圖的 LIST 卡：「♥ 品名」與「價格 … 動作」兩列，不另做單行版型。
+     窄卡（內容寬 < 13.5rem）的底列一律堆疊（價格一列、動作一列靠右），見 app.css「窄卡堆疊」。 */
   function cardHTML(p, layout) {
-    const compact = isBare(p) && (layout === 'list' || DATASET_MINIMAL);
     const soldCls = p.soldOut ? ' is-soldout' : '';
     const active = state.activeCard === p.id;
     const tab = active ? 0 : -1;
-    const fav = state.fav.includes(p.id);
     const mem = p.soldOut ? null : memoryFor(p);
     const memOpt = !!(mem && mem.kind === 'options');
     const openAttr = p.soldOut ? '' : ' data-action="open" data-id="' + p.id + '"';
@@ -533,34 +543,25 @@
       ? esc(p.name)
       : '<button type="button" class="pcard__open" data-action="open" data-id="' + p.id + '" data-key="open:' + p.id + '"' + tabAttr(tab) + '>' + esc(p.name) + '</button>';
     const nameEl = '<h3 class="pcard__name" id="n-' + p.id + '">' + nameBtn + '</h3>';
-    const price = priceHTML(p, 'pr-' + p.id);
-    const act = actionHTML(p, tab, mem);
-    const favIcon = fav ? '<span class="favmark" aria-label="已收藏">' + ICON('heart', 16, 'is-filled') + '</span>' : '';
+    const titleGroup = '<div class="pcard__titlegroup">' + favoriteHTML(p, tab) + nameEl + '</div>';
+    const row = '<div class="pcard__row"><span class="pcard__pricecell">' + priceHTML(p, 'pr-' + p.id) + '</span>' + actionHTML(p, tab, mem) + '</div>';
     const hint = cardHintHTML(p, mem);
     const descEl = p.desc ? '<p class="pcard__desc" id="ds-' + p.id + '">' + esc(p.desc) + '</p>' : '';
-
-    if (compact) {
-      return '<article class="pcard pcard--' + layout + ' pcard--bare' + soldCls + '"' + base + '>' +
-        '<div class="pcard__barein">' + nameEl.replace('</h3>', favIcon + '</h3>') +
-        '<div class="pcard__row">' + price + act + '</div></div>' + hint + '</article>';
-    }
-
+    const lastEl = memOpt ? '<p class="pcard__last">上次：' + esc(mem.text) + '</p>' : '';
     const tags = p.soldOut ? ['sold'] : p.tags;
     const hasImg = !!p.emoji;
-    const lastEl = memOpt ? '<p class="pcard__last">上次：' + esc(mem.text) + '</p>' : '';
 
     if (layout === 'grid') {
       const media = hasImg
         ? '<div class="pmedia pmedia--photo" aria-hidden="true"><span class="pmedia__glyph">' + p.emoji + '</span></div>'
         : '<div class="pmedia pmedia--ph" aria-hidden="true"><span class="pmedia__glyph">' + esc(initial(p.name)) + '</span></div>';
-      const overlay = hasImg && tags.length ? '<div class="pcard__overlay">' + tagsHTML(tags) + '</div>' : '';
-      const inline = !hasImg && tags.length ? tagsHTML(tags) : '';
+      const overlay = tags.length ? '<div class="pcard__overlay">' + tagsHTML(tags) + '</div>' : '';
       return '<article class="pcard pcard--grid' + soldCls + '"' + base + '>' +
-        '<div class="pcard__media">' + media + overlay + (fav ? '<span class="pcard__fav" aria-label="已收藏">' + ICON('heart', 16, 'is-filled') + '</span>' : '') + '</div>' +
+        '<div class="pcard__media">' + media + overlay + '</div>' +
         '<div class="pcard__body">' +
-          '<div class="pcard__titlerow">' + nameEl + inline + '</div>' + descEl + lastEl +
+          '<div class="pcard__titlerow">' + titleGroup + '</div>' + descEl + lastEl +
         '</div>' +
-        '<div class="pcard__foot' + (memOpt ? ' pcard__foot--mem' : '') + '">' + price + act + '</div>' + hint + '</article>';
+        row + hint + '</article>';
     }
 
     /* list */
@@ -568,11 +569,13 @@
       ? '<div class="pmedia pmedia--photo pcard__thumb" aria-hidden="true"><span class="pmedia__glyph">' + p.emoji + '</span></div>'
       : '';
     return '<article class="pcard pcard--list' + soldCls + '"' + base + '>' +
-      '<div class="pcard__main">' +
-        '<div class="pcard__titlerow">' + nameEl.replace('</h3>', favIcon + '</h3>') + (tags.length ? tagsHTML(tags) : '') + '</div>' +
-        descEl + lastEl +
-        '<div class="pcard__row">' + price + act + '</div>' +
-      '</div>' + thumb + hint + '</article>';
+      '<div class="pcard__top">' +
+        '<div class="pcard__main">' +
+          '<div class="pcard__titlerow">' + titleGroup + (tags.length ? tagsHTML(tags) : '') + '</div>' +
+          descEl + lastEl +
+        '</div>' + thumb +
+      '</div>' +
+      row + hint + '</article>';
   }
 
   /* 「常點」：依上次點餐的選項一鍵再點（無選項群組者只顯示品名與價格） */
@@ -1958,7 +1961,8 @@
     const i = state.fav.indexOf(pid);
     if (i >= 0) state.fav.splice(i, 1); else state.fav.push(pid);
     render();
-    focusKey('card:' + pid);
+    /* render() 已還原原本的焦點（愛心鈕、品名鈕或商品卡）；沒有焦點時才回到商品卡 */
+    if (!document.activeElement || document.activeElement === document.body) focusKey('card:' + pid);
     say((state.fav.includes(pid) ? '已加入我的最愛：' : '已取消收藏：') + p.name);
   }
 
@@ -2387,6 +2391,7 @@
       case 'fulfil': state.fulfil = id; render(); announce('取餐方式：' + fulfilName(id)); break;
       case 'layout': state.layout = id; render(); announce('已切換為' + (id === 'grid' ? '圖卡' : '清單') + '版面'); break;
       case 'add': cardAdd(id); break;
+      case 'fav': toggleFav(id); break;
       case 'inc': cardInc(id); break;
       case 'dec': cardDec(id); break;
       case 'again': repeatAdd(id, el.dataset.key); break;

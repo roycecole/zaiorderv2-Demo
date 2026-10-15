@@ -4,7 +4,7 @@
 | --- | --- |
 | 專案 | ZaiOrder — 台灣小吃店線上點餐平台（消費者端） |
 | 文件 | 邏輯資料模型：總覽圖、各領域詳細圖、關聯清單、設計決策 |
-| 版本 | v0.4 草案 ｜ 2026-10-14 |
+| 版本 | v0.4.1 草案 ｜ 2026-10-16 |
 | 相關文件 | [05 資料表設計](./05-database-schema.md)（欄位型別、預設值、索引）・[06 API](./06-api-spec.md) |
 
 > 文件導覽：[← 03 UI/UX 設計](./03-uiux-design.md) ・ 下一份：[05 資料表設計 →](./05-database-schema.md)
@@ -341,8 +341,8 @@ erDiagram
         string customer_phone
         datetime scheduled_at "null = 即時單"
         datetime estimated_ready_at
-        ulid table_id FK
-        string table_no "快照"
+        ulid table_id FK "內用有桌號才有"
+        string table_no "快照 · 可為空"
         string delivery_city "快照"
         string delivery_district
         string delivery_zip_code
@@ -551,7 +551,7 @@ erDiagram
 | 18 | `users` | `favorites` | 1 : N | `user_id` | 否 | CASCADE |
 | 19 | `products` | `favorites` | 1 : N | `product_id` | 否 | CASCADE |
 | 20 | `users` | `orders` | 1 : N | `user_id` | **是（訪客）** | SET NULL |
-| 21 | `store_tables` | `orders` | 1 : N | `table_id` | 是（非內用） | SET NULL |
+| 21 | `store_tables` | `orders` | 1 : N | `table_id` | 是（非內用，或內用沒有桌號） | SET NULL |
 | 22 | `coupons` | `orders` | 1 : N | `coupon_id` | 是 | SET NULL |
 | 23 | `orders` | `order_items` | 1 : N（至少 1） | `order_id` | 否 | CASCADE |
 | 24 | `order_items` | `order_item_options` | 1 : N | `order_item_id` | 否 | CASCADE |
@@ -585,6 +585,7 @@ erDiagram
 | D-09 | 營業狀態（`OPEN` / `CLOSED` / `PAUSED`）**不落庫**，由設定與時間即時計算 | 狀態隨時間改變，儲存即過期；Demo 的「時間穿梭」可直接重算 | 每次請求需計算（成本極低） |
 | D-10 | 所有營運資料帶 `store_id` | 預留多店 / 多商家（P3），Phase 1 僅一筆 | 查詢需恆帶 `store_id` 條件 |
 | D-11 | **計數器替代方案**：以每日庫存計數表（`product_daily_stock`）搭配條件式 `UPDATE` 原子扣減庫存；僅列為替代方案，**預設不採用**，維持 D-08 | 條件式 `UPDATE` 影響 0 列即數量不足，免除鎖內聚合查詢，可支撐更高的建單吞吐，也能在多店共用庫存時使用 | 每一條 `CANCELLED` 路徑與逾時都須於同交易遞減，漏一條即永久短少；須與 `orders` 對帳偵測漂移；`daily_limit` 變更須同步 `limit_qty`。計數器只降低鎖內成本，**不消除店家建單互斥鎖**：時段容量（I2）仍以 `orders` 計數，必須對同店序列化；若要完全去鎖，須連時段容量一併改為計數器。單店建單序列化的鎖內預期不到 30 ms（A-08），不需要這些成本，故預設維持 D-08；採用時才新增資料表，本文件的 26 張不含此表 |
+| D-12 | **內用桌號為選填**：`orders.table_id`、`orders.table_no` 皆可為 `NULL`，不設「內用時 `table_no` 必填」的 `CHECK`（`order_type <> 'DINE_IN' OR table_no IS NOT NULL`，v0.4.1 移除） | 現實中內用有自由入座、先領餐號叫號等沒有桌號的情況；叫號與領餐以 `pickup_no`（`T` 前綴）識別，不依賴桌號（BR-22、01 Q-17） | 店員無法依桌號送餐；`table_no` 為空的內用單需靠 `pickup_no` 對應；桌位 Session（09 CF-23）仍以有桌號為前提 |
 
 ### 5.1 D-11 計數器替代方案概要
 

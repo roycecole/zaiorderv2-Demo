@@ -19,7 +19,7 @@ ZaiOrder 消費者端點餐介面的**靜態視覺原型**，用來在實作前�
 | `data` | `full`、`mixed`、`noimg`、`minimal` | `full` | 菜單資料完整度（完整 / 約半數缺圖 / 全無圖 / 只有品名與價格） |
 | `layout` | `auto`、`grid`、`list` | `auto` | 菜單版面；`auto` 依有圖商品比例 ≥ 50% 為圖卡，否則清單 |
 | `brand` | `red`、`green`、`coffee`、`orange`、`blue`、`black`、`yellow` | `red` | 品牌主題色（對比度見 03 §4.8） |
-| `login` | `guest`、`member` | `guest` | 僅影響右上角顯示，不影響功能 |
+| `login` | `guest`、`member` | `guest` | 影響右上角顯示，並讓會員的商品卡在品名前顯示收藏愛心（實心 = 已收藏，示範資料有兩項已收藏；訪客與觸控面板沒有愛心鈕，訪客按 `f` 只會看到可略過的登入提示）；任何狀態都不強制登入 |
 | `sheet` | `lurou`、`aiyu` | `lurou` | `screen=sheet` 時的商品（`aiyu` 為無選項商品） |
 | `cart` | `0`、`1` | `1` | `0` 顯示空購物車狀態 |
 | `hints` | `auto`、`1`、`0` | `auto` | 單鍵快速鍵與徽章（`<kbd>`）。`auto`：**預設關閉**，桌機偵測到第一次可信的實體鍵盤按鍵後顯示鍵盤提醒，按「開啟」才啟用並顯示徽章；`1`：視為使用者已開啟（啟用並顯示徽章）；`0`：關閉且不提醒（截圖用）；`mode=kiosk` 永不偵測、不提醒、不顯示 |
@@ -37,6 +37,7 @@ ZaiOrder 消費者端點餐介面的**靜態視覺原型**，用來在實作前�
 - `app.html?screen=checkout&device=desktop&issues=1`、`app.html?screen=checkout&device=mobile&issues=bg`（結帳庫存與時段確認：送出被退回、背景偵測）
 - `app.html?screen=checkout&device=desktop`、`app.html?screen=tracking&device=desktop`（任務型頁面的鍵盤入口：頂欄 ⌨、頁尾「鍵盤快速鍵」、跳過連結）
 - `app.html?screen=menu&device=desktop&memory=1`（點餐記憶與「常點」）
+- `app.html?screen=menu&device=mobile&data=mixed&layout=list&login=member&memory=1`、`app.html?screen=menu&device=mobile&layout=grid&login=member`（商品卡：愛心在品名前、價格靠左與動作靠右的底列、窄卡堆疊）
 - `app.html?screen=menu&mode=kiosk`、`app.html?screen=idle&mode=kiosk`、`app.html?screen=done&mode=kiosk`（觸控面板）
 
 ### 鍵盤快速鍵（小寫字母）與鍵盤提醒
@@ -65,10 +66,19 @@ ZaiOrder 消費者端點餐介面的**靜態視覺原型**，用來在實作前�
 - **未示範的區塊**：外送地址與桌號（03 的 ③）、折扣碼與優惠券（⑥）、條款聲明與行銷同意勾選，以及店家狀態說明（休息中 / 暫停接單）。因此異動清單只示範「無法購買、數量不足、時段」三類阻擋項與一項價格更新；折扣 / 付款 / 發票 / 外送條件類沒有示範資料。
 - **沒有付款畫面**：提醒的路由排除（結帳與付款）在原型只對應結帳；訂單追蹤畫面則照規格可出現提醒。
 - **不保留狀態**：偏好、提醒與結帳處理狀態只存在記憶體（見上方說明）；原型以多頁網址切換，換頁會重新載入，因此不保留 ⌨ 圓點與提醒狀態。
+- **商品卡門檻以 px 表示**：03 §6.6 的窄卡堆疊門檻以 rem 計（13.5rem；觸控面板 15.5rem），原型的字級是 px 代幣、沒有縮放 html 基準字級，因此以各模式的基準字級換算：一般 216px、大字 243px、觸控面板 279px、觸控面板大字 310px（`app.css` 的 `@container`）。型態仍只由卡片內容寬決定。
+- **收藏只是示意**：愛心鈕只在 `login=member` 顯示，狀態只存在記憶體；商品面板沒有愛心。
 
 ## 截圖
 
 `png/` 內為各畫面的截圖（手機 2×、桌機 1×），已嵌入 03 與 README。重新產生時請以固定視口（390×844、1440×900、觸控面板 1280×800 等）擷取；Chrome 無頭模式的 CLI 視窗最小寬度為 500px，手機尺寸需改用 DevTools Protocol 設定視口，並以觸控模擬（`Emulation.setTouchEmulationEnabled`）使 `hover: none` 與 `any-pointer: coarse`，鍵盤提醒才不會被偵測觸發。既有畫面以 `hints=0` 擷取（不含徽章與提醒）；結帳畫面需等待約 1 秒讓頂部狀態列完成「確認中 → 結果」。每次重拍後以像素差異比對，只替換因語意變更而改變的圖。
+
+新增於 v0.4.1 的截圖（商品卡特寫，只截取菜單內前幾張商品卡的範圍；視口 390 寬 @2x、觸控模擬）：
+
+| 檔案 | 參數 | 範圍 |
+| --- | --- | --- |
+| `card-list-member.png` | `screen=menu&device=mobile&data=mixed&layout=list&login=member&memory=1&cart=0&hints=0` | 飯類前 5 張卡（382×798） |
+| `card-grid-member.png` | `screen=menu&device=mobile&data=full&layout=grid&login=member&memory=1&cart=0&hints=0` | 飯類前 4 張卡（382×653） |
 
 新增於 v0.4 的截圖：
 
@@ -79,13 +89,16 @@ ZaiOrder 消費者端點餐介面的**靜態視覺原型**，用來在實作前�
 | `checkout-issues-desktop.png` | `screen=checkout&device=desktop&issues=1` | 1440×900 |
 | `checkout-issues-mobile.png` | `screen=checkout&device=mobile&issues=1` | 390×1200 @2x |
 
-語意變更而重拍的既有截圖：`menu-desktop-full`、`menu-desktop-minimal`、`menu-desktop-green`（⌨ 與「移除」不再隨徽章隱藏）、`checkout-mobile-guest`（390×1240，預留高度的狀態列、明細行狀態槽與頁尾入口）、`shortcuts-dialog` 與 `menu-desktop-memory`（改以預設關閉的 `hints=0` 重拍：開關為關、副標為未啟用版本、背景無徽章）、`tracking-mobile`（390×1060，新增頁尾入口）、`checkout-issues-desktop` / `checkout-issues-mobile`（頂欄 ⌨、明細行狀態槽）、`keyboard-reminder-desktop` / `keyboard-reminder-mobile`（按鈕高 ≥ 44、「不用了」為 ghost）。`menu-desktop-hints` 刻意維持已啟用單鍵快速鍵（`hints=1`）的畫面。
+商品卡排版重整（v0.4.1：愛心在品名前、LIST 價格與動作移到跨滿全寬的底列、精簡卡為兩列、窄卡堆疊）而重拍的既有截圖：`menu-desktop-full`、`menu-desktop-minimal`、`menu-desktop-green`、`menu-desktop-hints`、`menu-desktop-memory`、`menu-mobile-full`、`menu-mobile-mixed-list`、`menu-mobile-minimal`、`menu-mobile-memory`、`sheet-mobile-minimal`（背景菜單）、`shortcuts-dialog`（背景菜單）、`keyboard-reminder-desktop` / `keyboard-reminder-mobile`、`kiosk-menu`、`kiosk-idle`（背景菜單）；其餘畫面（商品面板、結帳、訂單追蹤、主題、觸控面板完成畫面）不含商品卡，重拍後與修改前的原型輸出逐像素相同，未替換。
+
+v0.4 語意變更而重拍的既有截圖：`menu-desktop-full`、`menu-desktop-minimal`、`menu-desktop-green`（⌨ 與「移除」不再隨徽章隱藏）、`checkout-mobile-guest`（390×1240，預留高度的狀態列、明細行狀態槽與頁尾入口）、`shortcuts-dialog` 與 `menu-desktop-memory`（改以預設關閉的 `hints=0` 重拍：開關為關、副標為未啟用版本、背景無徽章）、`tracking-mobile`（390×1060，新增頁尾入口）、`checkout-issues-desktop` / `checkout-issues-mobile`（頂欄 ⌨、明細行狀態槽）、`keyboard-reminder-desktop` / `keyboard-reminder-mobile`（按鈕高 ≥ 44、「不用了」為 ghost）。`menu-desktop-hints` 刻意維持已啟用單鍵快速鍵（`hints=1`）的畫面。
 
 ## 規則
 
 - 設計代幣（顏色、圓角、陰影、品牌色組）必須與 03 §4 一致；修改代幣請先改規格文件。
 - 預設品牌色組的數值由 `domain/theme.ts` 的演算法推導（見 07 §7.4），此處為其靜態副本。
 - 任何畫面不得出現強制登入；登入僅為 ghost 連結或可略過的提示。
+- 商品卡（03 §6.6）：`LIST` 與 `GRID` 共用「品名列（愛心在品名前）→ 底列（價格靠左、動作靠右，跨滿內容寬度並貼卡片底端）」；`LIST` 的縮圖 88×88 在底列上方的右欄，動作右緣 = 縮圖右緣 = 內容區右緣；精簡卡沒有縮圖與描述，仍是兩列；卡片內容寬低於門檻時底列一律堆疊，不依價格字數或動作種類。
 - 單鍵快速鍵預設關閉，徽章與 `aria-keyshortcuts` 跟隨同一個開關；偵測到實體鍵盤只用於「提醒可開啟」，不隱藏或停用任何輸入方式。`?` 在停用時不生效；`Esc`、`Ctrl/⌘ + Enter` 永遠有效。
 - 鍵盤提醒不位移版面、不搶焦點、不遮蔽取得焦點的元件與主要操作（可暫時覆蓋非互動的標題區）；⌨ 入口（含結帳與訂單追蹤，≥ 768）、頁尾連結與購物車「移除」不依賴徽章開關。徽章為行內元素，不得隱藏或移動功能控制項。
 - 觸控面板不偵測、不提醒、不顯示鍵盤入口，但 `Esc` 與 `Ctrl/⌘ + Enter` 永遠有效（以同一個 `resolveHotkey`，`enabled = false`）。

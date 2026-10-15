@@ -4,7 +4,7 @@
 | --- | --- |
 | 專案 | ZaiOrder — 台灣小吃店線上點餐平台（消費者端） |
 | 文件 | 前後端串接契約：通則、端點、資料型別、錯誤碼、串接檢核 |
-| 版本 | v0.4 草案 ｜ 2026-10-14 |
+| 版本 | v0.4.1 草案 ｜ 2026-10-16 |
 | 狀態 | **契約先行**：Phase 1 由前端 Mock Adapter 實作；Phase 2 由後端實作，兩者必須通過同一組契約測試 |
 | 相關文件 | [05 資料表](./05-database-schema.md)（欄位與列舉）・[07 前端架構](./07-frontend-architecture.md)（`ApiClient` 與 Adapter）・[02 流程圖](./02-flows.md) |
 
@@ -128,7 +128,7 @@
 | GET | `/stores/{storeSlug}/pickup-slots` | 公開 | 可預約時段 | FR-CK-02 | P1 |
 | GET | `/stores/{storeSlug}/delivery-zones` | 公開 | 外送範圍清單 | FR-ST-06、FR-CK-04 | P1 |
 | GET | `/stores/{storeSlug}/delivery-check` | 公開 | 檢查郵遞區號是否可外送 | FR-CK-04 | P1 |
-| GET | `/stores/{storeSlug}/tables/{qrToken}` | 公開 | 以 QR 權杖解析桌號 | FR-CK-05 | P1 |
+| GET | `/stores/{storeSlug}/tables/{qrToken}` | 公開 | 以 QR 權杖解析桌號（僅網址帶 `?table=` 時呼叫；手動選內用不呼叫，桌號選填） | FR-CK-05 | P1 |
 
 ### 2.3 訂單與付款
 
@@ -212,7 +212,7 @@ export interface ApiErrorResponse {
 | 422 | `MIN_ORDER_NOT_MET` | 未達最低消費 | 顯示差額 |
 | 422 | `OUT_OF_DELIVERY_AREA` | 超出外送範圍 | 建議改自取 |
 | 422 | `SLOT_UNAVAILABLE` | 時段已過、額滿或不在營業時間；預約時段於送出確認時被占滿（EC-07）；`checks[]` 帶 `field=scheduledAt` | 重新載入時段並重選；清單提供最近可選時段，不靜默改選 |
-| 422 | `TABLE_NOT_FOUND` | 桌號 / QR 權杖無效 | 提示洽店員 |
+| 422 | `TABLE_NOT_FOUND` | 有提供的桌號或 QR 權杖無效（不是店家桌位、已停用，或格式不符 VR-10）；**未提供桌號時不檢查、不回此碼**（BR-22）；`checks[].field = "dineIn.tableNo"` | 提示洽店員；列入異動清單第 4 類並定位到桌號欄，動作為改正桌號或清空（內用可以沒有桌號） |
 | 422 | `PAYMENT_METHOD_NOT_ALLOWED` | 付款方式未啟用或不適用 | 重新選擇 |
 | 422 | `INVOICE_INVALID` | 發票資料格式或組合錯誤 | 欄位錯誤 |
 | 422 | `COUPON_NOT_FOUND` | 找不到折扣碼 | 見 [FLOW-07](./02-flows.md#flow-07-優惠券驗證) |
@@ -229,7 +229,7 @@ export interface ApiErrorResponse {
 
 > **報價（`quote`）永不因業務規則回傳 4xx**：所有業務檢查結果以 `checks[]` 回傳，使 UI 可一次呈現全部問題；只有請求格式錯誤才會回 `400`。`POST /orders` 則依上表以錯誤碼拒絕，且**所有 `422` 與 `409 PRICE_CHANGED` 皆附與同一請求的 `quote` 回應一致的 `error.quote`**（`IDEMPOTENCY_CONFLICT`、`ORDER_STATE_CONFLICT` 與 `400` 不附），前端以同一套邏輯處理 `quote` 與送出被退回（[FLOW-23](./02-flows.md#flow-23-異動清單處理)）。失敗品項與欄位以 `error.quote.items[i]` 及 `checks[].lineIndex` / `checks[].field` 定位，`details[]` 僅為 `ERROR` 項的投影；前端對每個 `422` 的 `code` 皆須有落點，不得只顯示通用錯誤或靜默丟棄：`ITEM_*`、`OPTION_*`、`QUANTITY_EXCEEDED` → 異動清單的品項行（行數超過上限為無 `lineIndex` 的整單項）；`SLOT_UNAVAILABLE`、`SERVICE_NOT_AVAILABLE` → 異動清單的「時段 / 取餐方式」類；折扣、付款、發票、外送條件與桌號類（含 `LOGIN_REQUIRED`）→ 對應欄位並計入鎖定數；`STORE_PAUSED`、`STORE_CLOSED` → 店家狀態說明（不進清單，並立即重新載入 `/status` 與 StoreInfo）。
 >
-> **`quote` 與 `POST /orders` 的檢查範圍**：`QuoteRequest` 不含 `paymentMethod`、`invoice`、`dineIn`，因此 `PAYMENT_METHOD_NOT_ALLOWED`、`INVOICE_INVALID`、`TABLE_NOT_FOUND` 只會在 `POST /orders` 產生，`quote` 預檢不會回報；其餘檢查共用同一份驗證，`error.quote` 與以同一請求內容呼叫的 `quote` 逐欄一致（`checks[]` 至多多出上述三碼）。
+> **`quote` 與 `POST /orders` 的檢查範圍**：`QuoteRequest` 不含 `paymentMethod`、`invoice`、`dineIn`，因此 `PAYMENT_METHOD_NOT_ALLOWED`、`INVOICE_INVALID`、`TABLE_NOT_FOUND` 只會在 `POST /orders` 產生，`quote` 預檢不會回報；其餘檢查共用同一份驗證，`error.quote` 與以同一請求內容呼叫的 `quote` 逐欄一致（`checks[]` 至多多出上述三碼）。`TABLE_NOT_FOUND` 另有前提：內用的 `dineIn.tableNo` 與 `dineIn.qrToken` 皆為選填，未提供（含空字串、全空白）時不檢查，因此內用沒有桌號時不會產生此碼。
 
 **驗證順序與頂層錯誤碼優先序**：`quote` 與 `POST /orders` 共用同一份驗證，**收集全部 `ERROR`、不短路**；`POST /orders` 的頂層 `error.code` 取下表順位最高者（同順位取 `checks[]` 中最先出現者），其餘全部列於 `error.quote.checks[]`。僅在**沒有任何**業務 `ERROR` 時才比對 `expectedTotal`（庫存先於價格）。
 
@@ -246,6 +246,8 @@ export interface ApiErrorResponse {
 | 9 | `COUPON_NOT_FOUND`、`COUPON_EXPIRED`、`COUPON_NOT_APPLICABLE`、`COUPON_MIN_NOT_MET`、`COUPON_USED_UP`、`LOGIN_REQUIRED` |
 | 10 | `PAYMENT_METHOD_NOT_ALLOWED`、`INVOICE_INVALID` |
 | 全數通過後 | `PRICE_CHANGED`（`409`） |
+
+> `TABLE_NOT_FOUND`（順位 7）只在請求有提供桌號或 QR 權杖時才會參與；內用沒有桌號時不產生此碼，也不影響其他順位。
 
 ---
 
@@ -570,7 +572,7 @@ export interface CreateOrderRequest {
     line: string;
     note?: string;
   };
-  dineIn?: { tableNo: string; qrToken?: string };
+  dineIn?: { tableNo?: string; qrToken?: string };   // 僅 DINE_IN；整個可省略，tableNo 與 qrToken 皆選填，空字串 / 全空白視為未提供（BR-22、VR-10）
   paymentMethod: PaymentMethod;
   invoice: {
     type: InvoiceType;
@@ -647,7 +649,7 @@ export interface Order {
    * lead 同 BR-08：外送 = 該單配送區的 estimated_minutes（以外送郵遞區號對應），缺值才用店家 delivery_lead_minutes；自取 = pickup_lead_minutes
    */
   acceptBy?: ISODateTime | null;
-  table?: { tableNo: string };
+  table?: { tableNo: string };      // 內用且有提供桌號時才有；沒有桌號的內用單省略（pickupNo 為叫號與領餐識別）
   delivery?: { city: string; district: string; zipCode: string; line: string; note?: string };
   items: OrderItem[];
   amounts: { subtotal: TWD; deliveryFee: TWD; discount: TWD; total: TWD };
@@ -1087,7 +1089,7 @@ export interface UserCoupon {
 | 永不因業務規則回 4xx | 所有業務檢查以 `checks[]` 回傳（`valid=false`）；只有請求格式錯誤才回 `400`。`quote` 逾時或回 `5xx` 時不阻擋送出，前端略過預檢直接 `POST /orders`（伺服器會完整重驗） |
 | 金額基準 | `subtotal`、`deliveryFee`、`discount`、`total` 以**可成立內容**計算：不可購買行 `lineTotal = 0`、數量不足行 `lineTotal = unitPrice × availableQuantity`，`subtotal = Σ lineTotal`；最低消費、免運與折扣門檻以調整後小計判斷；全部不可購買時各金額皆為 `0`。顧客看到的即「處理完之後要付的錢」 |
 | 一次回報 | 全部 `ERROR` 一次列出、不短路；每行以 `availableQuantity` 與 `remaining` 說明可購買份數；同商品多行依請求順序配置（BR-40） |
-| 檢查範圍 | `QuoteRequest` 不含 `paymentMethod`、`invoice`、`dineIn`：`PAYMENT_METHOD_NOT_ALLOWED`、`INVOICE_INVALID`、`TABLE_NOT_FOUND` 不會出現在 `quote`，只在 `POST /orders` 產生（§3.2）；`LOGIN_REQUIRED`（未登入使用會員限定券）為 `ERROR` check，`field = "couponCode"` |
+| 檢查範圍 | `QuoteRequest` 不含 `paymentMethod`、`invoice`、`dineIn`：`PAYMENT_METHOD_NOT_ALLOWED`、`INVOICE_INVALID`、`TABLE_NOT_FOUND` 不會出現在 `quote`，只在 `POST /orders` 產生（§3.2；`TABLE_NOT_FOUND` 且僅在請求有提供桌號或 QR 權杖時）；`LOGIN_REQUIRED`（未登入使用會員限定券）為 `ERROR` check，`field = "couponCode"` |
 
 **Request body — `QuoteRequest`**
 
@@ -1342,7 +1344,7 @@ export interface UserCoupon {
 | --- | --- |
 | 單一交易 | 冪等檢查、取得店家建單互斥鎖、結算逾期待付款、驗證、計入與寫入在同一個資料庫交易內；任一失敗整單不建立，伺服器不自動降量、移除品項或改選時段 |
 | 結算先於計數 | 鎖內計數前，先把 `PENDING_PAYMENT` 且 `payment_expires_at` 已逾**資料庫時鐘**的訂單條件式轉為 `CANCELLED`（`cancel_reason` 於同一 UPDATE 寫入；作廢進行中交易、返還優惠券、寫入狀態紀錄等後處理在**同一交易內**完成，皆為資料庫操作；需要退款的外部呼叫於 `COMMIT` 後、鎖外執行），再以 `status <> 'CANCELLED'` 計入；逾期判斷不得使用應用伺服器時間 |
-| 同一份邏輯 | 與 `quote` 共用同一份驗證與計價；階段順序與 `checks[]` 順序相同；`quote` 無法表達的付款方式、發票與桌號檢查只在本端點執行（§3.2） |
+| 同一份邏輯 | 與 `quote` 共用同一份驗證與計價；階段順序與 `checks[]` 順序相同；`quote` 無法表達的付款方式、發票與桌號檢查只在本端點執行（§3.2；桌號僅在有提供時檢查） |
 | 全部收集 | 驗證不短路：一次回報所有異動項與各行 `availableQuantity`；頂層 `error.code` 依 [§3.2 優先序](#32-錯誤碼表) |
 | 庫存先於價格 | 有任何業務 `ERROR` 回 `422`（`error.quote` 內為最新價格）；全數通過後 `expectedTotal` 與伺服器計算不同才回 `409 PRICE_CHANGED`，`error.quote` 為最新報價 |
 | 金額基準 | `error.quote` 的金額以可成立內容計算，`subtotal = Σ lineTotal`；與同一請求的 `quote` 回應逐欄一致 |
@@ -1358,6 +1360,48 @@ export interface UserCoupon {
 | 速率限制 | 同 IP、同手機有專屬限流（§1.6，含被退回的嘗試），命中回 `429 RATE_LIMITED` 並附 `retryAfterSeconds`；確定未建立訂單、不綁定 Key、不計入庫存與時段；前端不記下送出內容、依 `retryAfterSeconds` 暫停送出鈕，沿用同一把 Key 重送（[FLOW-24](./02-flows.md#flow-24-結果未知與冪等重送)）。測試環境須可關閉或放寬此限流（§7） |
 | 追蹤權杖 | 訪客訂單回傳 `trackingToken`（後端僅存雜湊，同一訂單同時只有一把有效權杖）。**冪等重放時重新簽發**新權杖並使舊權杖失效，確保回應遺失的訪客仍能取回；同 Key 並行或多次重放時以最後簽發者為準，前端採用較晚收到的 `201`，若以權杖存取訂單回 `404`，改以 `GET /orders/lookup`（§5.12）取回（訂單編號與手機取自該筆 `201` 的 `order.orderNo`、`order.customer.phone`；`DINE_IN` 訪客未填手機時無法以 `lookup` 取回，因此前端於送出中須停用送出鈕，不並行送出同一把 Key） |
 | 日誌 | 被拒的請求不落資料庫；僅寫結構化日誌 `order.create.rejected`（`requestId`、`codes`、`productIds`、`requested`、`available`，不含個資） |
+| 內用桌號 | 桌號與 QR 權杖皆為選填（BR-22）：`dineIn` 可整個省略；`tableNo`、`qrToken` 為空字串或全空白視為未提供，與省略相同。**有提供才驗證**：提供 `qrToken` 時以權杖解析店家桌位，僅提供 `tableNo` 時以桌號（VR-10：1～10 字元英數字）比對店家桌位，查無或已停用回 `422 TABLE_NOT_FOUND`；沒有提供則不檢查、不回此碼，`orders.table_id`、`orders.table_no` 為 `NULL`，回應的 `Order.table` 省略。取餐號碼（`T` 前綴）照常產生，作為叫號與領餐識別；`dineIn` 僅對 `orderType = DINE_IN` 有意義 |
+
+**請求（節錄）：內用，不掃 QR、沒有桌號（`dineIn` 省略）— `CreateOrderRequest`**
+
+```json
+{
+  "orderType": "DINE_IN",
+  "items": [
+    { "productId": "prd_lurou", "quantity": 1, "optionIds": ["opt_bowl_l", "opt_egg"] }
+  ],
+  "scheduledAt": null,
+  "contact": {},
+  "paymentMethod": "CASH",
+  "invoice": { "type": "PAPER" },
+  "needUtensils": false,
+  "expectedTotal": 67
+}
+```
+
+**請求（節錄）：內用，掃描桌上 QR 帶入桌號（`tableNo` 與 `qrToken` 皆有提供）— `CreateOrderRequest`**
+
+```json
+{
+  "orderType": "DINE_IN",
+  "items": [
+    { "productId": "prd_lurou", "quantity": 1, "optionIds": ["opt_bowl_l", "opt_egg"] }
+  ],
+  "scheduledAt": null,
+  "contact": { "name": "阿凱" },
+  "dineIn": { "tableNo": "A3", "qrToken": "qr_7d1f0a9c3e5b" },
+  "paymentMethod": "CASH",
+  "invoice": { "type": "PAPER" },
+  "needUtensils": false,
+  "expectedTotal": 67
+}
+```
+
+| 內用請求 | `201` 的 `order.table` | `order.pickupNo` | 驗證 |
+| --- | --- | --- | --- |
+| 有桌號（有效的 `tableNo` 或 `qrToken`） | `{ "tableNo": "A3" }`（建單當下的桌號快照） | `T` 前綴（例：`T001`） | 通過 |
+| 沒有桌號（`dineIn` 省略，或 `tableNo`、`qrToken` 為空字串 / 全空白） | 省略 | `T` 前綴（例：`T001`） | 不檢查，不回 `TABLE_NOT_FOUND` |
+| 有提供但不是店家桌位（例：`"Z99"`） | — | — | `422 TABLE_NOT_FOUND`（`error.quote.checks[]` 以 `field = "dineIn.tableNo"` 定位） |
 
 **錯誤範例 `409`（價格異動，無任何業務錯誤）— `ApiErrorResponse`**
 
@@ -1809,6 +1853,7 @@ export interface UserCoupon {
 - [ ] 時間欄位皆含 `+08:00`；金額皆為整數。
 - [ ] `POST /orders` 實作冪等（`Idempotency-Key`）與 `PRICE_CHANGED`：指紋排除 `expectedTotal`；鎖前與鎖內重查皆比對指紋；重放回 `201` 與 `replayed: true`，保證 ≥ 24 小時。
 - [ ] `quote` 與 `POST /orders` 使用**同一份**計價與驗證邏輯；所有 `422` 與 `409 PRICE_CHANGED` 皆附 `error.quote`，與以同一請求內容呼叫的 `quote` 逐欄一致（`PAYMENT_METHOD_NOT_ALLOWED`、`INVOICE_INVALID`、`TABLE_NOT_FOUND` 因 `QuoteRequest` 無對應欄位，只出現在 `error.quote`）；頂層 `error.code` 依 [§3.2](#32-錯誤碼表) 優先序。
+- [ ] 內用桌號選填（BR-22）：`dineIn` 可整個省略，`tableNo`、`qrToken` 皆選填且空字串 / 全空白視為未提供；未提供不檢查、不回 `TABLE_NOT_FOUND`，取餐號碼仍為 `T` 前綴，`Order.table` 省略；有提供才驗證格式與店家桌位；`orders.table_no` 可為 `NULL` 且資料庫沒有「內用必須有桌號」的 `CHECK`（[05 §5.4](./05-database-schema.md)）。
 - [ ] CORS 以 `Access-Control-Expose-Headers` 暴露 `Idempotent-Replayed`、`Retry-After`（前端以 body 的 `replayed` 與 `retryAfterSeconds` 為準，標頭僅輔助）。
 - [ ] 庫存與時段契約套件（含並行）於 Mock 與 HTTP 兩種來源皆通過：20 個不同 Key 同時搶最後 1 份只成功 1 筆、其餘 `422 ITEM_SOLD_OUT`；最後 1 個時段名額並行只成功 1 筆；同 Key 並行 ×5 只建立 1 筆、其餘 `201` 且 `replayed: true`、庫存只扣一次。HTTP 來源須先關閉或放寬 `POST /orders` 專屬限流（見下方測試環境項），否則同 IP、同手機的瞬間多筆會先回 `429`。
 - [ ] 取消、拒單與付款逾時（含排程尚未寫入 `CANCELLED`）後立即釋放；`GET /orders/{id}` 讀取時補做 `expireIfDue`；鎖內結算先於計數，且結算與其後處理（作廢交易、返還優惠券、狀態紀錄）在同一交易內完成（付款交易在途時建單不超賣）。

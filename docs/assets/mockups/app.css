@@ -463,8 +463,13 @@ button.topbar__brand { padding: 0; border: 0; background: none; text-align: left
 .menu-empty { padding: 56px 0; }
 
 /* 6. 商品卡 --------------------------------------------------------------- */
+/* LIST 與 GRID 共用同一套規則（03 §6.6）：品名列「♥ 品名 標籤」→（描述、上次選擇）→ 底列「價格（左）… 動作（右）」。
+   底列跨滿內容寬度並貼卡片底端（margin-top: auto），多欄時同排卡片的價格與動作縱向位置相同；
+   LIST 的右側縮圖在底列「上方」的兩欄裡，因此動作右緣 = 縮圖右緣 = 內容區右緣。
+   卡片本身是容器（container-type: inline-size）：窄卡堆疊只由卡片內容寬決定（見「窄卡堆疊」）。 */
 .pcard {
-  position: relative; display: flex; min-width: 0;
+  position: relative; display: flex; flex-direction: column; min-width: 0;
+  container-type: inline-size;
   background: var(--color-bg); border: 1px solid var(--color-border); border-radius: var(--radius-lg);
   transition: box-shadow .15s, border-color .15s; cursor: pointer;
 }
@@ -480,8 +485,38 @@ button.topbar__brand { padding: 0; border: 0; background: none; text-align: left
   font-size: var(--fs-small); line-height: var(--lh-small); color: var(--color-text-muted);
   display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden;
 }
+/* 品名列：「♥ 品名」為一組（不拆開換行），標籤接在後面、可換行；GRID 的標籤在圖片左上角 */
 .pcard__titlerow { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
-.pcard__row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.pcard__titlegroup { display: flex; align-items: flex-start; min-width: 0; max-width: 100%; }
+/* 收藏愛心（會員）：36px 圓鈕、圖示 18px、熱區 44；負 margin 讓圖示左緣與描述 / 價格左緣對齊，
+   並把按鈕高度折回一行品名（26px），不撐高品名列 */
+.favbtn {
+  position: relative; z-index: 2; display: grid; place-items: center; flex: none;
+  width: 36px; height: 36px; margin: -5px -2px -5px -9px; border-radius: 50%;
+  color: var(--color-brand-text); transition: background-color .15s;
+}
+.favbtn::after { content: ""; position: absolute; inset: -4px; }
+.favbtn:hover { background: var(--color-brand-soft); }
+/* 底列：價格靠左、動作靠右，垂直置中（價格格最小高度 = 動作按鈕高度） */
+.pcard__row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin-top: auto; }
+.pcard__pricecell { display: flex; align-items: center; flex: none; min-height: 36px; }
+.pcard__row .act { flex-wrap: wrap; justify-content: flex-end; gap: 8px; max-width: 100%; margin-left: auto; }
+/* 窄卡堆疊：卡片內容寬 < 13.5rem（觸控面板 15.5rem）時固定為「價格一列、動作一列（靠右）」，
+   不讓「放不放得下」依價格字數與動作種類而異（同排相鄰卡片的價格才不會上下錯開）。
+   原型的字級以 px 代幣表示，門檻依各模式的 html 基準字級換算：16px → 216、大字 18px → 243、
+   觸控面板 18px → 279、觸控面板大字 20px → 310。 */
+@container (width < 216px) {
+  html:not([data-textscale="1"]):not([data-mode="kiosk"]) .pcard__row { flex-direction: column; flex-wrap: nowrap; align-items: stretch; }
+}
+@container (width < 243px) {
+  html[data-textscale="1"]:not([data-mode="kiosk"]) .pcard__row { flex-direction: column; flex-wrap: nowrap; align-items: stretch; }
+}
+@container (width < 279px) {
+  html[data-mode="kiosk"]:not([data-large="1"]) .pcard__row { flex-direction: column; flex-wrap: nowrap; align-items: stretch; }
+}
+@container (width < 310px) {
+  html[data-mode="kiosk"][data-large="1"] .pcard__row { flex-direction: column; flex-wrap: nowrap; align-items: stretch; }
+}
 
 /* 商品圖（emoji 當作圖片）與佔位圖塊 */
 .pmedia {
@@ -499,36 +534,21 @@ button.topbar__brand { padding: 0; border: 0; background: none; text-align: left
   font-size: 40px; font-weight: 600; color: var(--color-text-muted); filter: none; letter-spacing: 0;
 }
 
-/* GRID 商品卡 */
-.pcard--grid { flex-direction: column; padding: 8px; }
+/* GRID 商品卡：圖片（標籤在左上角）→ 品名列 → 底列；文字與底列的左右緣與圖片區齊 */
+.pcard--grid { padding: 8px; }
 .pcard--grid .pcard__media { position: relative; }
 .pcard--grid .pmedia { aspect-ratio: 4 / 3; }
 .pcard__overlay { position: absolute; top: 8px; left: 8px; display: flex; flex-wrap: wrap; gap: 4px; max-width: calc(100% - 16px); }
-.pcard--grid .pcard__body { display: flex; flex-direction: column; gap: 4px; padding: 12px 4px 0; }
-.pcard--grid .pcard__foot {
-  display: flex; align-items: center; justify-content: space-between; gap: 8px;
-  margin-top: auto; padding: 12px 4px 4px; min-height: 56px;
-}
-.pcard--grid .pcard__body + .pcard__foot { padding-top: 8px; }
+.pcard--grid .pcard__body { display: flex; flex-direction: column; gap: 4px; padding: 12px 0 0; }
+.pcard--grid .pcard__row { padding: 12px 0 4px; }
 
-/* LIST 商品卡 */
-.pcard--list { align-items: flex-start; gap: 12px; padding: 12px; }
-.pcard--list .pcard__main { display: flex; flex-direction: column; flex: 1; align-self: stretch; gap: 4px; min-width: 0; }
-.pcard--list .pcard__row { margin-top: auto; padding-top: 4px; min-height: 44px; }
+/* LIST 商品卡：上方兩欄（文字 ＋ 右側縮圖 88×88，可無），下方是跨滿全寬的底列。
+   無圖 / 精簡卡沒有縮圖欄，其餘規則相同（精簡卡為「♥ 品名」與「價格 … 動作」兩列） */
+.pcard--list { gap: 8px; padding: 12px; }
+.pcard__top { display: flex; align-items: flex-start; gap: 12px; }
+.pcard--list .pcard__main { display: flex; flex-direction: column; flex: 1; gap: 4px; min-width: 0; }
 .pcard--list .pcard__thumb { flex: none; width: 88px; height: 88px; border-radius: var(--radius-md); }
 .pcard--list .pcard__thumb .pmedia__glyph { font-size: 44px; filter: drop-shadow(0 3px 4px rgba(24, 24, 27, .14)); }
-
-/* 精簡資料：只剩品名 + 價格 + ＋（單行，高 >= 56） */
-.pcard.pcard--bare { display: block; padding: 0; container-type: inline-size; }
-.pcard__barein { display: flex; align-items: center; gap: 12px; min-height: 62px; padding: 8px 12px 8px 16px; }
-.pcard--bare .pcard__name { flex: 1; min-width: 0; }
-.pcard--bare .pcard__row { flex: none; gap: 12px; }
-.pcard--bare .act { min-width: 100px; justify-content: flex-end; }
-/* 卡片太窄放不下一行（例如手機 2 欄 grid）：品名一行、價格＋動作一行 */
-@container (max-width: 299px) {
-  .pcard__barein { flex-direction: column; align-items: stretch; gap: 0; padding: 8px 12px 8px 16px; }
-  .pcard--bare .pcard__row { justify-content: space-between; }
-}
 
 /* 今日售完：整張卡灰階（0.55），標籤與「售完」按鈕保持可讀 */
 .pcard.is-soldout .pcard__media .pmedia,
@@ -895,7 +915,6 @@ details.trdetails .trdetails__body { padding: 0 16px 16px; }
   .store__ctl { width: 100%; flex-wrap: wrap; justify-content: space-between; gap: 8px 12px; }
   .segmented__btn { min-width: 48px; padding: 0 8px; }
   .eta { padding: 0 8px; gap: 4px; }
-  .pcard--bare .act { min-width: 88px; }
   .chipsbar { top: var(--appbar-offset, var(--appbar-h)); margin-top: 8px; padding-right: 0; }
   .chips__scroller {
     padding: 8px 40px 8px 16px;
@@ -905,15 +924,12 @@ details.trdetails .trdetails__body { padding: 0 16px 16px; }
   .menu { padding: 0 16px 24px; }
   .msec { padding-top: 20px; }
   .msec__head { margin-bottom: 12px; }
-  .pcard--grid .pcard__body { padding: 8px 4px 0; }
-  .pcard--grid .pcard__foot { min-height: 52px; padding: 8px 4px 4px; }
   .pcard__name { font-size: var(--fs-h3); }
   .stepper__btn { width: 32px; height: 32px; }
   .stepper__btn::after { inset: -6px; }
   .stepper__count { min-width: 24px; }
   .stepper--lg .stepper__btn { width: 44px; height: 44px; }
   .stepper--lg .stepper__count { min-width: 36px; }
-  .pcard--list .pcard__row { padding-top: 0; }
 }
 @media (min-width: 768px) {
   .pgrid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; }
@@ -1003,12 +1019,7 @@ html:not([data-hints="0"]) .searchbox input { padding-right: 52px; }
 .pcard__hint .keyhint { margin-left: 0; margin-right: 6px; }
 .pcard__hint .sep { font-style: normal; color: var(--color-text-disabled); }
 
-/* 收藏 */
-.pcard__fav {
-  position: absolute; top: 8px; right: 8px; display: grid; place-items: center;
-  width: 28px; height: 28px; border-radius: 50%; background: var(--color-bg); color: var(--color-brand-text); box-shadow: var(--shadow-sm);
-}
-.favmark { display: inline-flex; vertical-align: middle; margin-left: 6px; color: var(--color-brand-text); }
+/* 收藏（愛心按鈕見 6. 商品卡 .favbtn）：已收藏為實心 */
 .icon.is-filled { fill: currentColor; }
 @media (max-width: 479px) { .keyhints { display: none; } }
 
@@ -1194,9 +1205,6 @@ html:not([data-hints="0"]) .searchbox input { padding-right: 52px; }
 @media (max-width: 767px) {
   .common { padding-top: 20px; }
   .common__list { padding: 0 16px 4px; margin: 0 -16px; scroll-padding-left: 16px; }
-  .pcard__foot--mem { flex-wrap: wrap; row-gap: 8px; }
-  .pcard__foot--mem .act--mem { width: 100%; }
-  .pcard__foot--mem .btn-again { flex: 1; }
 }
 .tip {
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
@@ -1257,8 +1265,7 @@ html[data-mode="kiosk"] .menu { padding: 0 32px 40px; }
 html[data-mode="kiosk"] .msec { padding-top: 24px; }
 html[data-mode="kiosk"] .pgrid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px; }
 html[data-mode="kiosk"] .plist { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; }
-html[data-mode="kiosk"] .pcard--grid .pcard__foot { min-height: 72px; padding-top: 12px; }
-html[data-mode="kiosk"] .pcard--list .pcard__row { min-height: 72px; }
+html[data-mode="kiosk"] .pcard__pricecell { min-height: 56px; }
 html[data-mode="kiosk"] .pcard--list .pcard__thumb { width: 104px; height: 104px; }
 html[data-mode="kiosk"] .btn { min-height: 56px; padding: 0 24px; font-size: var(--fs-body); line-height: var(--lh-body); }
 html[data-mode="kiosk"] .btn--lg { min-height: 64px; font-size: 20px; line-height: 28px; }

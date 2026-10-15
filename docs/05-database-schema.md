@@ -4,7 +4,7 @@
 | --- | --- |
 | 專案 | ZaiOrder — 台灣小吃店線上點餐平台（消費者端） |
 | 文件 | 資料表、欄位字典、列舉值、索引與約束 |
-| 版本 | v0.4 草案 ｜ 2026-10-14 |
+| 版本 | v0.4.1 草案 ｜ 2026-10-16 |
 | 適用階段 | Phase 1 前端以 Mock 資料集合對應本設計；Phase 2 後端依本設計建立資料庫 |
 | 相關文件 | [04 ERD](./04-erd.md)（關聯圖）・[06 API](./06-api-spec.md)（欄位對外命名）・[01 需求](./01-requirements.md) |
 
@@ -188,7 +188,7 @@
 | `paused_until` | TS | Y | NULL | | 預計恢復接單時間；到達後自動視為恢復。`is_accepting_orders=FALSE` 且為 `NULL` = 手動暫停，需人工恢復 |
 | `allow_pickup` | BOOL | N | TRUE | | 開放自取 |
 | `allow_delivery` | BOOL | N | TRUE | | 開放外送 |
-| `allow_dine_in` | BOOL | N | FALSE | | 開放內用 QR 點餐 |
+| `allow_dine_in` | BOOL | N | FALSE | | 開放內用（QR 帶入桌號或手動選內用；桌號選填，BR-22） |
 | `pickup_lead_minutes` | SMALLINT UNSIGNED | N | 15 | | 自取前置分鐘（BR-08） |
 | `delivery_lead_minutes` | SMALLINT UNSIGNED | N | 40 | | 外送預設前置分鐘；配送區 `delivery_zones.estimated_minutes` 缺值時使用（BR-08；預約單接單期限的前置分鐘同此規則，§6.4） |
 | `slot_interval_minutes` | SMALLINT UNSIGNED | N | 15 | | 預約時段間隔 |
@@ -238,6 +238,8 @@
 | `is_active` | BOOL | N | TRUE | | |
 
 唯一鍵：`UK(store_id, table_no)`。
+
+訂單不強制引用桌位：內用桌號為選填（BR-22），沒有桌號的內用單不參照本表（`orders.table_id`、`orders.table_no` 皆為 `NULL`）。
 
 #### `delivery_zones` 外送範圍
 
@@ -421,8 +423,8 @@
 | `customer_phone` | VARCHAR(10) | Y | NULL | IX | 聯絡手機（內用可為空）；PII |
 | `scheduled_at` | TS | Y | NULL | | 預約時間；`NULL` = 即時單 |
 | `estimated_ready_at` | TS | Y | NULL | | 預估完成時間（接單時更新） |
-| `table_id` | ID | Y | NULL | FK→`store_tables.id` | 內用桌位 |
-| `table_no` | VARCHAR(10) | Y | NULL | | 桌號快照 |
+| `table_id` | ID | Y | NULL | FK→`store_tables.id` | 內用且有提供桌號（或 QR 權杖）時的桌位；沒有桌號的內用單與非內用單為 `NULL` |
+| `table_no` | VARCHAR(10) | Y | NULL | | 桌號快照（可為空）：僅在有提供桌號時寫入建單當下 `store_tables.table_no` 的值；內用**不強制**桌號（BR-22），沒有桌號的內用單與非內用單為 `NULL`；叫號與領餐以 `pickup_no` 識別 |
 | `delivery_city` | VARCHAR(10) | Y | NULL | | 外送地址快照；PII |
 | `delivery_district` | VARCHAR(10) | Y | NULL | | |
 | `delivery_zip_code` | CHAR(3) | Y | NULL | | |
@@ -456,7 +458,8 @@
 - `UK(store_id, business_date, pickup_no)`：取餐號碼不重複；序號鍵見下方「取餐號碼序號」。
 - `UK(store_id, idempotency_key)`（`NULL` 不衝突）：冪等鍵**不隨時間清除**，隨訂單存續、不另設清除排程；契約保證**重放有效期 ≥ 24 小時**（BR-27；06 §1.4 的「24 小時」是保證的下限，不是清除時點）。並行同 Key 由店家建單互斥鎖序列化（§6.3），此唯一鍵為最後防線：衝突時轉為重放並比對 `idempotency_request_hash`（相同回傳原訂單；不同回 `409 IDEMPOTENCY_CONFLICT`），不得回 500。
 - `CHECK (total_amount = subtotal_amount + delivery_fee - discount_amount)`。
-- `CHECK (order_type <> 'DELIVERY' OR delivery_address_line IS NOT NULL)`；`CHECK (order_type <> 'DINE_IN' OR table_no IS NOT NULL)`。
+- `CHECK (order_type <> 'DELIVERY' OR delivery_address_line IS NOT NULL)`。
+- **內用不設桌號必填約束**（BR-22、01 Q-17）：v0.4.1 起移除 `CHECK (order_type <> 'DINE_IN' OR table_no IS NOT NULL)`；`table_no`、`table_id` 恆可為 `NULL`。有提供桌號時由應用層（建單交易的驗證階段）確認為店家桌位並寫入快照，沒有提供則不檢查、兩欄皆為 `NULL`。
 - `CHECK (status <> 'PENDING_PAYMENT' OR payment_expires_at IS NOT NULL)`；`CHECK (status <> 'PENDING' OR pending_at IS NOT NULL)`：付款逾時與接單逾時的條件式更新以 `<=` 比較期限，對 `NULL` 不命中，缺值的訂單會永久占用限量與時段，因此以約束擋下；對帳 3、4 另列此類資料作為最後防線（§6.4）。
 - `IX(user_id, placed_at DESC)`（歷史訂單）、`IX(store_id, status, placed_at)`（店家看板）、`IX(customer_phone)`（訪客查詢）、`IX(status, payment_expires_at)`（付款逾時掃描與建單鎖內結算）、`IX(status, pending_at)`（接單逾時掃描與對帳，BR-17）。
 - `IX(store_id, business_date, status)`：限量商品已售份數加總（§6.4）。

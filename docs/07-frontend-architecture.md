@@ -4,7 +4,7 @@
 | --- | --- |
 | 專案 | ZaiOrder — 台灣小吃店線上點餐平台（消費者端） |
 | 文件 | 技術選型、專案結構、分層、Mock / HTTP 切換、狀態管理、測試與部署 |
-| 版本 | v0.4 草案 ｜ 2026-10-14 |
+| 版本 | v0.4.1 草案 ｜ 2026-10-16 |
 | 相關文件 | [06 API 規格](./06-api-spec.md)（型別與端點）・[02 流程圖](./02-flows.md)（FLOW-19、FLOW-22～25）・[03 UI/UX](./03-uiux-design.md)・[08 Demo 指南](./08-demo-guide.md) |
 
 > 文件導覽：[← 06 API 規格](./06-api-spec.md) ・ 下一份：[08 Demo 操作指南 →](./08-demo-guide.md)
@@ -242,6 +242,7 @@ export interface ApiClient {
     getPickupSlots(params: { orderType: OrderType; zipCode?: string }): Promise<PickupSlotsResponse>;
     getDeliveryZones(): Promise<{ items: DeliveryZone[] }>;
     checkDelivery(zipCode: string): Promise<DeliveryCheckResponse>;
+    /** 僅在網址帶 ?table= 時呼叫；手動選內用（桌號選填，BR-22）不呼叫。無法辨識時丟出 TABLE_NOT_FOUND，前端回退為一般點餐 */
     resolveTable(qrToken: string): Promise<{ tableNo: string; seats?: number }>;
   };
   orders: {
@@ -423,7 +424,7 @@ export async function request<T>(url: string, opts: RequestOptions = {}): Promis
 | `zaiorder:v1:guestOrders` | `{ orderId, orderNo, trackingToken, placedAt }[]`（最多 10 筆） | `features/orders` |
 | `zaiorder:v1:db` | Mock 可變集合 | `mock/db` |
 | `zaiorder:v1:demo` | `DemoState`（見 §6.5） | `features/demo` |
-| `zaiorder:v1:checkoutDraft`（sessionStorage） | 結帳表單草稿，另含 `idempotencyKey` 與結果未知時記下的送出內容 `unknownBodies`（含姓名手機，與草稿同敏感度）；2xx 後清除（BR-41）；觸控面板閒置重置時一併丟棄（FLOW-21） | `features/checkout` |
+| `zaiorder:v1:checkoutDraft`（sessionStorage） | 結帳表單草稿（含選填的桌號 `tableNo`，空字串視為未提供，BR-22），另含 `idempotencyKey` 與結果未知時記下的送出內容 `unknownBodies`（含姓名手機，與草稿同敏感度）；2xx 後清除（BR-41）；觸控面板閒置重置時一併丟棄（FLOW-21） | `features/checkout` |
 | `zaiorder:v1:mode`（sessionStorage） | 此分頁是否為觸控面板模式的旗標（不含個資）；由 `VITE_KIOSK_MODE`，或 `VITE_DEMO_MODE=true` 時的 `?mode=kiosk` 寫入，避免站內導覽遺失 query | `app` |
 
 所有存取經 `safeStorage`：`localStorage` 不可用或寫入失敗時降級為記憶體並通知 UI 顯示一次性提示（FR-SY-11）。
@@ -956,7 +957,7 @@ Mock 要在單一瀏覽器內重現後端 [FLOW-22](./02-flows.md#flow-22-結帳
 | --- | --- | --- |
 | 1 | `loadWorld()` | 讀取 db、`DemoState` 覆寫（`soldOutProductIds`、`priceOverrides`、`limitOverrides`）、`menuProfile` 的目錄視圖（§6.7）與時鐘，合成一份唯讀的 `World`；覆寫只在這裡合成，menu、product、pickup-slots、quote 與 create 共用 |
 | 2 | `settleExpiredOrders(now)` | 只在**寫入路徑**呼叫（`orders.create` 的臨界區內、`orders.cancel`、`orders.pay`、`GET /orders/{id}` 的 `expireIfDue`）：把已逾付款期限、以及（自動模擬關閉時）已逾接單期限的訂單條件式轉為 `CANCELLED`（判斷見下方 `settle.ts`；自動模擬開啟時先補寫模擬轉換再判斷接單逾時，R-V；`cancel_reason` 於同一次寫入），並在**同一個臨界區內**做與 FLOW-14 的 T → X 相同的後處理（作廢進行中交易、返還優惠券、狀態紀錄、必要時進入 `REFUNDING`），不存在「稍後補做」；影響 0 列即視為已處理，可重複呼叫。**唯讀路徑**（`store.getMenu`、`store.getProduct`、`store.getPickupSlots`、`orders.quote`、`orders.list`）不呼叫、不寫入，只以 `countsTowardStock` 排除已逾付款期限的待付款單，釋放不依賴掃描時機；`orders.list` 為顯示修正（已逾付款期限者以相同判斷顯示為 `CANCELLED`、`tab` 歸 `cancelled`，不寫入、不推進模擬狀態），`orders.lookup` 只回 `orderId` 與新簽發的權杖，不回狀態、不結算（[06 §5.12、§5.14](./06-api-spec.md)） |
-| 3 | `evaluateOrder(world, req)` | 與 `quote` 同一個函式：計入集合用 `countsTowardStock`、剩餘用 `remainingOf`、同商品多行用 `allocateByProduct`（§7.6）；全部收集、不短路，頂層錯誤碼依 [06 §3.2](./06-api-spec.md) 的優先序。`quote` 只回報結果，`create` 才依結果寫入 |
+| 3 | `evaluateOrder(world, req)` | 與 `quote` 同一個函式：計入集合用 `countsTowardStock`、剩餘用 `remainingOf`、同商品多行用 `allocateByProduct`（§7.6）；全部收集、不短路，頂層錯誤碼依 [06 §3.2](./06-api-spec.md) 的優先序。`create` 專屬的桌號檢查只在請求有提供 `dineIn.tableNo` 或 `dineIn.qrToken` 時執行（空字串、全空白視為未提供，BR-22）：提供 `qrToken` 時以權杖、否則以桌號比對店家桌位，查無或已停用才回 `TABLE_NOT_FOUND`；內用沒有桌號不檢查。`quote` 只回報結果，`create` 才依結果寫入 |
 | 4 | `commit(...)` | 同步寫入 `orders`、`order_items`、`order_item_options`、`order_status_logs`，綁定 Key 與請求指紋；`payments` 只寫現金單的 `PENDING` 現金交易，線上付款交易不在建單時建立（由 `orders.pay` 於鎖外建立，[05 §6.3](./05-database-schema.md) ⑧、FLOW-22 步驟 9）；取餐號碼以 `nextPickupNo` 取 `(營業日, 前綴)` 的下一個序號 |
 | 5 | `db.flush()` | 同步寫回 `localStorage`（db 不使用 debounce），在臨界區結束前完成 |
 
@@ -1284,7 +1285,7 @@ export function recentCreateLog(log: ReadonlyArray<CreateLogEntry>, limit: numbe
 | 異動清單（結帳） | 衍生狀態 | `deriveCheckoutIssues(quote, lineIds, cartLines, shown, previous)` 回傳 `{ issues, storeIssue }`（`lineIds` 為該 `quote` 請求當時的 `lineId` 快照：以 `lineId` 對應目前購物車行並驗證 `productId`，對不到或不一致者略過；重新計價期間沿用快照並停用逐行動作，R-Y）；展開 / 收合為 UI 暫態 | — | 每次 quote 回應重算；背景偵測（進入結帳、欄位變更、視窗取得焦點）只更新狀態列、訂單明細行與送出鈕，**不展開**；只在送出被退回（含按下送出後的預檢發現異動）或使用者點「查看」（含點擊鎖定的送出鈕、鎖定時 Ctrl/⌘ + Enter）時展開（FLOW-23） |
 | Idempotency-Key 與結果未知的送出內容 | 用戶端狀態 | `checkoutDraft`（`idempotencyKey`、`unknownBodies`） | `sessionStorage`（觸控面板僅記憶體） | 首次送出產生；422、`PRICE_CHANGED`、確定未建立的 429 / 503 與結果未知後沿用；到 2xx 才作廢；觸控面板閒置重置時與記下的送出內容一併丟棄（BR-37、BR-41、FLOW-21、FLOW-24） |
 | 訂單詳情 | 伺服器狀態 | Query | — | 非終態，或終態但退款進行中（`payment.status=REFUNDING`），且頁面可見時 `refetchInterval` 5s（FLOW-16） |
-| 購物車 | 用戶端狀態 | Zustand `persist` | `localStorage`（24h，以 `getClock()` 計算） | 每次變更寫入；進入首頁 / 購物車 / 結帳與視窗取得焦點時 `purgeIfExpired()` |
+| 購物車 | 用戶端狀態 | Zustand `persist` | `localStorage`（24h，以 `getClock()` 計算） | 每次變更寫入；還原時不判斷過期（時鐘尚未校正）；資料來源啟動完成（時鐘就緒）後、進入首頁 / 購物車 / 結帳與視窗取得焦點時 `purgeIfExpired()` |
 | Session | 用戶端狀態 | Zustand `persist` | `localStorage`（Demo） | 登入 / 登出 / refresh |
 | 取餐方式與偏好 | 用戶端狀態 | Zustand `persist`（`prefs`） | `localStorage` | — |
 | 訪客資料（姓名、手機、最近地址、付款 / 發票設定） | 用戶端狀態 | `prefs.guestProfile` | `localStorage`（僅勾選「記住我的資料」時；觸控面板模式不保存） | 可由「清除我的資料」移除，連同點餐記憶與本機訂單記錄（FR-CK-14） |
@@ -1517,12 +1518,12 @@ export const useCartStore = create<CartState & CartActions>()(
       version: 1,
       storage: createJSONStorage(() => storage),
       partialize: (s) => ({ lines: s.lines, orderType: s.orderType, updatedAt: s.updatedAt }),
-      // 還原時若已超過 24 小時，視為過期（FR-CT-04）
+      // 還原時只檢查資料形狀；24 小時過期（FR-CT-04）交給 purgeIfExpired()：
+      // store 在模組載入時就還原，此時 Demo 的時間穿梭 / 伺服器時差校正尚未套用到 getClock()，
+      // 以未校正的時鐘判斷會誤清購物車。應用程式啟動完成（時鐘就緒）後與每次進入頁面都會呼叫 purgeIfExpired()。
       merge: (persisted, current) => {
         const p = persisted as Partial<CartState> | undefined;
-        if (!p || typeof p.updatedAt !== 'number' || isCartExpired({ updatedAt: p.updatedAt }, nowMs())) {
-          return current;
-        }
+        if (!p || typeof p.updatedAt !== 'number' || !Array.isArray(p.lines)) return current;
         return { ...current, ...p };
       },
     },
@@ -3541,9 +3542,10 @@ flowchart TD
 | --- | --- |
 | `/orders`、`/account/*` | 需會員；訪客導向 `/login?redirect=` |
 | `/orders` 訪客 | 導向 `/orders/lookup`（PG-07 規格） |
+| `/`（`?table=`） | 有 `?table=` 時以 `resolveTable` 解析（結果以 TanStack Query 快取，結帳頁共用）：有效且店家開放內用 → 取餐方式鎖定「內用」並帶入桌號；無法辨識或店家未開放內用 → 非阻擋提示並回退為一般點餐（不鎖定，不影響其他守衛）。沒有 `?table=` 時不鎖定，顧客可直接選「內用」，桌號選填（BR-22）；觸控面板模式不套用 `?table=`（內用單一律無桌號） |
 | `/orders/:orderId` | 會員本人，或 `guestOrders` 內有對應 `trackingToken`（觸控面板模式的 `guestOrders` 僅存記憶體）；否則顯示「找不到訂單」並導向 `/orders/lookup`。以權杖存取回 `404`（權杖已被較晚簽發者取代，BR-27）時，先以記下的 `orderNo` 與手機呼叫 `orders.lookup` 換取新權杖並重試一次（FLOW-16）：手機取自同一次載入內該筆 `201` 的 `order.customer.phone`（不另寫入 `guestOrders`），頁面重新載入後取不到時，改取已勾選「記住我的資料」的 `prefs.guestProfile`；兩者皆無或仍失敗才顯示「找不到訂單」 |
 | `/payment/:orderId` | 訂單須為 `PENDING_PAYMENT`，否則導向 `/orders/:orderId` |
-| `/checkout` | 購物車為空 → 導向 `/cart`；店家 `PAUSED` → 唯讀模式 |
+| `/checkout` | 購物車為空 → 導向 `/cart`；店家 `PAUSED` → 唯讀模式；內用單不因缺桌號而被擋下（桌號選填，BR-22） |
 | `/cart` | 寬度 ≥ 1024 時導向 `/` 並展開右側購物車面板（03 §5.2）；其餘斷點顯示獨立頁 |
 
 路由層級皆使用 `lazy()` 切分；`/login`、`/account/*`、`/store` 為非關鍵路徑，不放入首屏 bundle。
@@ -3629,6 +3631,7 @@ export const noteSchema = z.string().trim().max(100, '備註最多 100 字');
 ```
 
 - 手機輸入以 `inputmode="numeric"`、`autocomplete="tel"` 並即時格式化（[03 §5.4](./03-uiux-design.md)）。
+- **桌號（VR-10、BR-22）**：`tableNo` 為選填字串，只在 `orderType === 'DINE_IN'` 時參與驗證與請求組裝：`trim()` 後為空字串視為未提供，不驗證，請求不帶 `dineIn.tableNo`（`dineIn` 可整個省略）；有填才檢查格式（1～10 字元英數字，輸入自動轉大寫）。QR 帶入且有效時桌號唯讀，請求另帶 `qrToken`。是否為店家桌位由 `POST /orders` 的 `TABLE_NOT_FOUND` 判定（`QuoteRequest` 無此欄位），落點為 `dineIn.tableNo`（桌號欄可改正或清空）。觸控面板模式沒有桌號欄，內用單一律不帶 `dineIn`。
 - 後端回傳 `VALIDATION_FAILED.details[].field` 以 `setError(field, …)` 對應回表單欄位。
 
 ---
@@ -3722,6 +3725,7 @@ export const noteSchema = z.string().trim().max(100, '備註最多 100 字');
 | `availability` | `countsTowardStock`：`CANCELLED` 不計入；待付款於到期前 1 ms 計入、到期當下不計入；`PENDING` 以後（含 `COMPLETED`）計入。`remainingOf`：不限量為 `null`、超賣夾 0。`allocateByProduct`：剩 3 時 [1, 2, 2] → [1, 2, 0]、[4, 2] → [3, 0]；手動售完與下架為 0；選項無效不參與配置；配置為 0 且商品層級仍有剩餘 → 數量不足而非售完。`maxAddable`：剩 2 且其他行已有 1 → 1、`null` → 20、0 → 0、25 → 20。`targetBusinessDate`：即時單、預約明日、跨午夜 00:30、特殊營業日。`deriveCheckoutIssues`：售完 + 數量不足 + 時段額滿 + 單價變動 → 4 項且依序排列；行數超限的整單項排在數量不足類別最前；`quote` 與購物車錯位（快照 `lineId` 對不到或 `productId` 不一致者略過，不指到別的品項）；僅價格 → 阻擋數 0；同商品多行分組（EC-32）；折扣失效；每個 422 錯誤碼有落點（`STORE_*` 回 `storeIssue`、`SERVICE_NOT_AVAILABLE` 為第 3 類、`LOGIN_REQUIRED` 為折扣類且阻擋、`QUANTITY_EXCEEDED` 含行數整單項）；同一行只算一項；`remaining` 與 `wasAvailable`。`hasNothingToBuy`（EC-37）。`decideSubmit`：有阻擋項聚焦清單、總額增加兩步、降價一鍵、送出中與冷卻中不動作（含 Ctrl/⌘ + Enter）、重新計價排入佇列且優先於鎖定 |
 | `idempotency` | 指紋：排除 `expectedTotal`、`optionIds` 排序、備註去空白、欄位順序無關、任一內容變更則不同。Key 狀態：首次產生、422 後沿用、結果未知後改內容沿用並記下內容（相同內容只記一次）、CONFLICT 依序重放且不換新 Key、2xx 後作廢、重放內容與購物車不一致或原訂單已取消時保留購物車；`classifyFailedSubmit`（`429` 與 503 附 `retryAfterSeconds` → 確定未建立、不記下內容；未附 → 結果未知）；觸控面板閒置重置回到空狀態；非安全環境的後備指紋 |
 | `slots` | `nearestAvailableSlot`：優先之後最近、其次之前、無則 `null`；盡快（`null`）回最早的可用時段 |
+| `checkoutSchema`、請求組裝、`mock/evaluateOrder`（桌號，BR-22、VR-10） | 內用桌號空字串 / 全空白 → 表單通過、請求不帶 `dineIn.tableNo`；`A3`、`a3`（轉大寫）通過；11 字元或含符號 → 格式錯誤；非內用忽略桌號欄；觸控面板模式內用單一律不帶 `dineIn`。`create`：內用沒有桌號 → 成功、不回 `TABLE_NOT_FOUND`、`Order.table` 省略、`pickupNo` 為 `T` 前綴；有提供但不是店家桌位 → `422 TABLE_NOT_FOUND`（`field = 'dineIn.tableNo'`，只出現在 `create` 的 `error.quote`）；僅提供 `qrToken` 時以權杖解析 |
 | `http/request` | 逾時 10 秒（假計時器）→ `ApiError(0, 'SERVICE_UNAVAILABLE')`；呼叫端 `signal` 取消 → 原樣丟出 `AbortError`、不轉為 `ApiError`；非 2xx 轉為 `ApiError(status, code, message, body)`，無 `code` 退回 `'INTERNAL_ERROR'`（NFR-06、FLOW-15） |
 | `kbdNotice`、`hotkeys` | `classifyKeyboardEvidence` 表格案例：不可信事件、Tab、方向鍵與 Enter 的焦點條件、Ctrl / Meta / Alt、Esc / Space / PageDown、軟鍵盤 `code` 為空、`'Process'` + 實體 `code`、組字、長按、AZERTY、`Digit` 與 `Numpad`；Tab 在輸入元件內仍為導覽證據、輸入元件內打字預設不算證據（`kbdNotice.ENABLE_EDIT_TYPING`）；門檻（fine pointer 1 次、純觸控含 Tab 或 10 秒內 3 次）；gate 各原因（含本次載入已開啟過偏好設定：只切換其他偏好重新評估仍不提醒）與 24 小時邊界；阻擋條件（含 `'FOCUS_COVERED'`）與讓位；狀態轉換逐條對照 FLOW-25（含 `'PREFS_OPENED'` 清除小圓點、確認狀態 `HOLD` / `RELEASE` 不改階段）；`'RESTORE_FOCUS'` 只在收起當下焦點仍在卡片內才附（焦點曾進入但已離開、被浮層搶走皆不附）、`'FOCUS_VIEW_ALL'` 只在鍵盤啟動「開啟」時附；`applyHold` 三來源合取（滑鼠移出但焦點仍在卡片內不得 `RELEASE`）；`closeTarget`；`resolveHotkey` 在 `enabled = false` 時單鍵與 `?` 無效、Esc 與 Ctrl/⌘ + Enter 仍有效；`migratePrefs` |
 | `mock/*` | `createOrder`：`'BEFORE'` 不消耗預備情境、重放不重驗且不消耗預備情境、被拒不寫入且不消耗優惠券、成功才綁定 Key、`'AFTER_COMMIT'` 後同 Key 重送取回原訂單；`withDbLock`：同鎖序列化、不支援 Web Locks 時降級；`expiryOf` 與 `countsTowardStock` 互為補集、重複結算冪等；唯讀路徑（quote）不結算、寫入路徑才寫成 `CANCELLED`；`acceptDeadlineMs` 自 `pending_at` 起算（12:00 下單、12:11 付款成功 → 12:21，不在進入 `PENDING` 當下逾時）；`leadMinutesFor`（外送取配送區 `estimated_minutes`、缺值才用店家預設，自取與內用取 `pickup_lead_minutes`；配送區 35、店家預設 40 的外送預約單期限為 16:25 而非 16:20）；`simulator`：預約單 `pending_at + 5 秒` 即 `ACCEPTED`、基準前維持 `ACCEPTED`、快轉到製作基準為 `ACCEPTED` 而非 `CANCELLED`；自動模擬開啟時離頁超過接單期限後才讀取，仍為 `ACCEPTED` 或其後的模擬狀態（`autoAcceptAtMs`），自動模擬關閉才判為接單逾時；`requestLog`：被拒紀錄附 `summary`；`nextPickupNo` 以 (營業日, 前綴) 為鍵；`toCatalogView` 保留庫存事實、`minimalize` 折疊 `isSoldOut`；兩個模擬分頁（兩個 db 實例共用 storage）交錯建單不遺失、不超賣 |

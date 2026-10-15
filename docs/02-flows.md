@@ -4,7 +4,7 @@
 | --- | --- |
 | 專案 | ZaiOrder — 台灣小吃店線上點餐平台（消費者端） |
 | 文件 | 使用者流程、系統流程、時序圖與狀態機（Mermaid） |
-| 版本 | v0.4 草案 ｜ 2026-10-14 |
+| 版本 | v0.4.1 草案 ｜ 2026-10-16 |
 | 相關文件 | [01 需求](./01-requirements.md)（FR / BR 編號）・[06 API](./06-api-spec.md)（端點與錯誤碼）・[05 資料表](./05-database-schema.md)（欄位名稱） |
 
 > 文件導覽：[← 01 需求規格書](./01-requirements.md) ・ 下一份：[03 UI/UX 設計 →](./03-uiux-design.md)
@@ -174,7 +174,7 @@ flowchart TD
     F --> G{取餐方式}
     G -->|PICKUP| H[選擇時間]
     G -->|DELIVERY| I[填寫地址 · 檢查範圍與運費]
-    G -->|DINE_IN| J[確認桌號]
+    G -->|DINE_IN| J["桌號（選填）<br/>QR 帶入或手動輸入 · 沒有桌號可留空"]
     I --> H
     J --> K[聯絡資訊]
     H --> K
@@ -209,6 +209,7 @@ flowchart TD
 **說明**
 
 - `PAUSED` 時整頁唯讀（FR-CK-12）；使用者可返回菜單或致電店家。
+- **內用桌號為選填**（BR-22、VR-10）：步驟 J 可留空（自由入座、先領餐號叫號），留空時請求不帶 `dineIn.tableNo`（`dineIn` 可整個省略），不檢查、不擋送出，仍產生 `T` 前綴的取餐號碼。有提供桌號（QR 帶入或手動輸入）時，前端只檢查格式（1～10 字元英數字）；是否為店家桌位於 `POST /orders` 確認，不是店家桌位回 `422 TABLE_NOT_FOUND`（落點為桌號欄，FLOW-23 第 4 類，可改正或留空）。QR 帶入且有效時取餐方式鎖定為內用並帶入桌號（不可改成不存在的桌號）；觸控面板模式沒有桌號輸入，內用單一律無桌號。
 - 步驟 C 與 O 的 `quote` 都是**不保留**的預檢（BR-39）：O 與 R 之間庫存、時段與金額仍可能變動，因此 `POST /orders` 才是最終裁決（FLOW-22），並必須帶 `expectedTotal`（BR-25）。庫存與可用性先於價格：有任何業務錯誤回 `422`（附 `error.quote`），全數通過後金額不符才回 `409 PRICE_CHANGED`。
 - 步驟 O 逾時或 5xx **不阻擋送出**，直接 `POST /orders`（伺服器完整重驗，只降低友善度，不降低正確性）。重新計價中按下送出（含 Ctrl/⌘ + Enter）時排入佇列，`quote` 回來後依 FLOW-23 的條件自動送出，並以 polite 通報「計價中，完成後送出」。
 - 被退回（`422`（店家狀態類除外）或 `409 PRICE_CHANGED`）時**不離開結帳頁**：就地展開異動清單（FLOW-23），保留已填表單、已選時段與同一把 `Idempotency-Key`；不自動重送、不靜默改選時段或調整數量。僅 `400` 與非業務類失敗才回到表單（L）。
@@ -1138,12 +1139,12 @@ flowchart TD
 | 1 | 無法購買 | `ITEM_UNLISTED`、`ITEM_SOLD_OUT`、`OPTION_INVALID`、`OPTION_UNAVAILABLE` | 清單項（對應購物車行） | 移除、重新選擇 | 是 |
 | 2 | 數量不足 | `ITEM_STOCK_INSUFFICIENT`（含同商品多行加總後被縮減者）；`QUANTITY_EXCEEDED`（單行超過單品上限，`availableQuantity` = `min(quantity, 單行上限)`）；品項行數超過 `maxLines`（無 `lineIndex` 的整單項） | 清單項；行數超限為置於本類別最前的整單項 | 改為 n 份、移除；整單項為「移除品項」 | 是 |
 | 3 | 時段 · 取餐方式 | `SLOT_UNAVAILABLE`、`SERVICE_NOT_AVAILABLE` | 時段選擇區與清單項；取餐方式切換 | 改選最近可選時段、選其他時段、改為盡快（若可用）、預約明天；改為其他取餐方式 | 是 |
-| 4 | 折扣 · 付款 · 發票 · 外送條件 | `COUPON_NOT_FOUND`、`COUPON_EXPIRED`、`COUPON_NOT_APPLICABLE`、`COUPON_MIN_NOT_MET`、`COUPON_USED_UP`、`LOGIN_REQUIRED`、`MIN_ORDER_NOT_MET`、`OUT_OF_DELIVERY_AREA`、`PAYMENT_METHOD_NOT_ALLOWED`、`INVOICE_INVALID`、`TABLE_NOT_FOUND` | 對應欄位（折扣碼、地址、付款方式、發票、桌號）顯示錯誤，清單同步列出 | 修正欄位；`LOGIN_REQUIRED` 為「移除折扣碼」「登入（可略過）」；超出外送範圍提供「改為自取」，未達最低消費提供「繼續點餐」 | 是 |
+| 4 | 折扣 · 付款 · 發票 · 外送條件 | `COUPON_NOT_FOUND`、`COUPON_EXPIRED`、`COUPON_NOT_APPLICABLE`、`COUPON_MIN_NOT_MET`、`COUPON_USED_UP`、`LOGIN_REQUIRED`、`MIN_ORDER_NOT_MET`、`OUT_OF_DELIVERY_AREA`、`PAYMENT_METHOD_NOT_ALLOWED`、`INVOICE_INVALID`、`TABLE_NOT_FOUND` | 對應欄位（折扣碼、地址、付款方式、發票、桌號）顯示錯誤，清單同步列出；`TABLE_NOT_FOUND` 只在請求有提供桌號或 QR 權杖時才會出現（內用留空不檢查） | 修正欄位（桌號可改正或直接清空，內用可以沒有桌號）；`LOGIN_REQUIRED` 為「移除折扣碼」「登入（可略過）」；超出外送範圍提供「改為自取」，未達最低消費提供「繼續點餐」 | 是 |
 | 5 | 價格更新（固定最後） | `PRICE_CHANGED`，或 quote 單價與購物車快照不同 | 清單的價格差異列 | 由主按鈕「確認新價格並送出」確認 | 否 |
 
 - 第 4 類原本沒有落點：折扣失效同時是價格變動，以「折扣 −$40 已失效，總額 $380 → $420」列為價格差異，且折扣碼欄位標示錯誤並計入鎖定數。`LOGIN_REQUIRED` 與其他折扣碼錯誤同為折扣類異動：定位到折扣碼欄位並計入鎖定數（前端 `blocking = true`），動作為「移除折扣碼」「登入（可略過）」；**不強制登入下單**，移除折扣碼即可送出（BR-33）。
 - 店家狀態類不進異動清單：`STORE_PAUSED`、`STORE_CLOSED`（`422` 被退回或預檢回報）一律立即 invalidate `/status` 與 StoreInfo，在狀態列下方預先預留的店家狀態說明槽（`min-height`；店家營業中時為空白佔位，因此填表中途店家狀態改變也不位移版面）顯示——休息中提供「改預約」，暫停接單則整頁唯讀並顯示店家電話——焦點移到該說明並以 polite 通報；與清單並存時，說明先於清單。`deriveCheckoutIssues` 不靜默丟棄這類結果，以 `storeIssue` 旗標回傳。`SERVICE_NOT_AVAILABLE` 則重新載入 StoreInfo、停用該取餐方式並列入第 3 類。
-- `quote` 只評估請求內帶有的欄位：付款方式、發票與桌號類（`PAYMENT_METHOD_NOT_ALLOWED`、`INVOICE_INVALID`、`TABLE_NOT_FOUND`）若 `quote` 請求未帶，第一次出現於送出被退回的 `error.quote`（見 [06 §5.8](./06-api-spec.md)）；落點與動作相同。
+- `quote` 只評估請求內帶有的欄位：付款方式、發票與桌號類（`PAYMENT_METHOD_NOT_ALLOWED`、`INVOICE_INVALID`、`TABLE_NOT_FOUND`）若 `quote` 請求未帶，第一次出現於送出被退回的 `error.quote`（見 [06 §5.8](./06-api-spec.md)）；落點與動作相同。桌號類另有一個前提：內用的桌號與 QR 權杖皆為選填，未提供（含空字串、全空白）時 `POST /orders` 也不檢查，不會產生 `TABLE_NOT_FOUND`（BR-22）。
 - 顯示順序依阻擋性：無法購買 → 數量不足 → 時段 · 取餐方式 → 折扣 · 付款 · 發票 · 外送條件 → 價格更新（固定最後，不計入 n）。同商品多行以商品分組，組標題「{品名}　合計已選 m 份，今日只剩 n 份」，各行顯示自己的建議。
 - 「全部無法購買」時以 EmptyState 取代清單；金額、運費與折扣皆為 0，表單草稿保留，重新加入商品後不需重填聯絡資訊（EC-37）。
 - 被顧客**自己**的待付款單占用時（EC-34），清單可依此裝置本機持有的待付款訂單補充說明並提示「繼續付款」或「取消該訂單」；此為選配，文案見 [03 §9](./03-uiux-design.md)，不屬上表的必要就地動作，也不計入 n；跨裝置無法判斷。
