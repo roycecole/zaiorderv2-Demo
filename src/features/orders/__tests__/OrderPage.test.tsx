@@ -282,6 +282,42 @@ describe('OrderPage：內容與權限', () => {
     expect((await screen.findAllByText('預約 18:30 取餐')).length).toBeGreaterThan(0);
   });
 
+  it('內用有桌號：「內用資訊」顯示「內用・店名・桌號 A3」', async () => {
+    guestHolds();
+    renderOrder(
+      createFakeApi({
+        orders: {
+          get: async () =>
+            pending({ orderType: 'DINE_IN', pickupNo: 'T001', table: { tableNo: 'A3' } }),
+        },
+        store: { getInfo: async () => store },
+      }),
+    );
+    await pickupHeading();
+    const info = await screen.findByRole('region', { name: '內用資訊' });
+    expect(info).toHaveTextContent('內用・巷仔內小吃部・桌號 A3');
+    expect(info).not.toHaveTextContent('取餐號碼');
+  });
+
+  it('內用沒有桌號：不顯示桌號列（沒有 undefined 或空白），以「內用・店名・取餐號碼 T001」呈現', async () => {
+    guestHolds();
+    renderOrder(
+      createFakeApi({
+        orders: { get: async () => pending({ orderType: 'DINE_IN', pickupNo: 'T001' }) },
+        store: { getInfo: async () => store },
+      }),
+    );
+    await pickupHeading();
+    const info = await screen.findByRole('region', { name: '內用資訊' });
+    expect(info).toHaveTextContent('內用・巷仔內小吃部・取餐號碼 T001');
+    expect(info).not.toHaveTextContent('桌號');
+    expect(info).not.toHaveTextContent('undefined');
+    // 取餐號碼仍是頁面的主角（朗讀版本）
+    expect(
+      screen.getByRole('heading', { level: 1, name: '取餐號碼 T 0 0 1' }),
+    ).toBeInTheDocument();
+  });
+
   it('可展開訂單明細：品項、選項、備註與金額', async () => {
     const u = userEvent.setup();
     guestHolds();

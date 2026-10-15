@@ -48,6 +48,8 @@ export interface PlaceSectionProps {
   /** 桌號有效但店家未開放內用：回到一般取餐方式並說明 */
   qrDineInOff?: boolean | undefined;
   tableChecking: boolean;
+  /** 送出被退回的 TABLE_NOT_FOUND（桌號有填但不是店家桌位）：標示在桌號欄 */
+  tableServerError?: string | undefined;
 }
 
 export function PlaceSection({
@@ -64,10 +66,18 @@ export function PlaceSection({
   qrFailed,
   qrDineInOff = false,
   tableChecking,
+  tableServerError,
 }: PlaceSectionProps) {
   const headingId = useId();
+  // 內用可以沒有桌號：觸控面板沒有桌號輸入，區塊標題改為「內用」
   const title =
-    orderType === 'DELIVERY' ? '外送地址' : orderType === 'DINE_IN' ? '桌號' : '取餐地點';
+    orderType === 'DELIVERY'
+      ? '外送地址'
+      : orderType === 'DINE_IN'
+        ? kiosk
+          ? tCheckout.kioskOrderTypeLabel.DINE_IN
+          : '桌號'
+        : '取餐地點';
   return (
     <SectionCard index={3} title={title} headingId={headingId}>
       {orderType === 'PICKUP' ? (
@@ -101,7 +111,13 @@ export function PlaceSection({
       ) : null}
 
       {orderType === 'DINE_IN' ? (
-        <TableField qrTable={qrTable} qrFailed={qrFailed} checking={tableChecking} />
+        <TableField
+          qrTable={qrTable}
+          qrFailed={qrFailed}
+          checking={tableChecking}
+          kiosk={kiosk}
+          serverError={tableServerError}
+        />
       ) : null}
 
       {/* QR 桌號無法辨識而回退為一般點餐：說明原因，不讓顧客以為內用已生效（03 PG-01） */}
@@ -269,29 +285,38 @@ function TableField({
   qrTable,
   qrFailed,
   checking,
+  kiosk,
+  serverError,
 }: {
   qrTable: string | null;
   qrFailed: boolean;
   checking: boolean;
+  kiosk: boolean;
+  serverError: string | undefined;
 }) {
   const T = tCheckout.dineIn;
   const table = useStringField('tableNo');
+  // 觸控面板：沒有桌號輸入，內用單一律無桌號，餐點好了依取餐號碼叫號
+  if (kiosk) {
+    return <p className="text-base leading-6 text-text">{T.noTableKiosk}</p>;
+  }
   if (qrTable !== null) {
     return <p className="text-base leading-6 font-semibold text-text">{T.resolved(qrTable)}</p>;
   }
   return (
     <div className="flex flex-col gap-2">
       {checking ? <p className="text-sm leading-5 text-text-muted">{T.checking}</p> : null}
-      {qrFailed ? <FieldErrorText>{T.notFound}</FieldErrorText> : null}
+      {/* 桌號選填：QR 帶入的桌號無法辨識時只是說明，不是欄位錯誤，留空仍可送出 */}
+      {qrFailed ? <p className="text-sm leading-5 text-warning">{T.qrNotFound}</p> : null}
       <TextField
         label={T.tableNo}
-        required
+        optional
         hint={T.tableHint}
         autoCapitalize="characters"
         autoComplete="off"
         maxLength={10}
         {...table.inputProps}
-        error={table.error}
+        error={table.error ?? serverError}
         onChange={(e) => table.set(e.target.value.toUpperCase())}
       />
     </div>
@@ -408,7 +433,7 @@ export function PaymentSection({ methods, orderType, kiosk, serverError }: Payme
           name="paymentMethod"
           legend={T.legend}
           hideLegend
-          columns={2}
+          columns={methods.length === 1 ? 1 : 2}
           value={method.value}
           onChange={(v) => method.set(v)}
           error={error}

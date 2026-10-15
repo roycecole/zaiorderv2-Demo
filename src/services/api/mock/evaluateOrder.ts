@@ -69,6 +69,9 @@ export interface EvaluationResult extends Evaluation {
   detail: EvaluationDetail;
 }
 
+/** VR-10：桌號 1～10 字元英數字（比對前已轉大寫） */
+const TABLE_NO_RE = /^[A-Z0-9]{1,10}$/;
+
 const ORDER_TYPE_LABEL: Record<OrderType, string> = { PICKUP: '自取', DELIVERY: '外送', DINE_IN: '內用' };
 
 /** 06 §3.2 的頂層錯誤碼優先序（數字越小越優先） */
@@ -356,16 +359,22 @@ export function evaluateOrder(world: World, req: EvaluationRequest): EvaluationR
     }
   }
 
+  // 內用可以沒有桌號（自由入座、先領餐號叫號）：沒提供 tableNo 與 qrToken（空字串 / 全空白視同未提供）就不檢查；
+  // 有提供才驗證 VR-10 格式與店家桌位，否則 TABLE_NOT_FOUND（QR 權杖優先於手動桌號）。
   let table: TableSeed | null = null;
   if (req.create !== undefined && req.orderType === 'DINE_IN') {
     const dineIn = req.create.dineIn;
-    const token = dineIn?.qrToken?.trim().toUpperCase();
-    const no = dineIn?.tableNo.trim().toUpperCase();
-    table =
-      world.seed.tables.find(
-        (t) => t.isActive && (token !== undefined && token !== '' ? t.qrToken.toUpperCase() === token : t.tableNo.toUpperCase() === no),
-      ) ?? null;
-    if (table === null) error('TABLE_NOT_FOUND', '找不到這個桌號，請洽店員', { field: 'dineIn.tableNo' });
+    const token = dineIn?.qrToken?.trim().toUpperCase() ?? '';
+    const no = dineIn?.tableNo?.trim().toUpperCase() ?? '';
+    if (token !== '' || no !== '') {
+      table =
+        world.seed.tables.find(
+          (t) =>
+            t.isActive &&
+            (token !== '' ? t.qrToken.toUpperCase() === token : TABLE_NO_RE.test(no) && t.tableNo.toUpperCase() === no),
+        ) ?? null;
+      if (table === null) error('TABLE_NOT_FOUND', '找不到這個桌號，請洽店員', { field: 'dineIn.tableNo' });
+    }
   }
 
   // ── D. 外送範圍、最低消費與運費 ──

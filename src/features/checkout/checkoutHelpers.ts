@@ -143,6 +143,11 @@ export function makeAck(quote: QuoteResponse, lineIds: ReadonlyArray<string>): P
 /** 這些異動只會出現在 POST /orders 的 error.quote（QuoteRequest 不帶付款、發票、桌號），需沿用到對應欄位被修改為止 */
 const STICKY_FIELDS = ['paymentMethod', 'invoice', 'dineIn.tableNo'] as const;
 
+/** 桌號相關的異動（TABLE_NOT_FOUND，落點 `dineIn.tableNo`）；觸控面板沒有桌號欄，這類異動一律不顯示、不計入 */
+export function isTableIssue(issue: CheckoutIssue): boolean {
+  return issue.code === 'TABLE_NOT_FOUND' || (issue.field ?? '').startsWith('dineIn.');
+}
+
 export function isStickyIssue(issue: CheckoutIssue): boolean {
   if (issue.kind === 'SLOT' && issue.code === 'SLOT_UNAVAILABLE') return true;
   const f = issue.field ?? '';

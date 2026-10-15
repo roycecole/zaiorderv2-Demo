@@ -25,6 +25,13 @@ describe('庫存-8：quote 與 create 共用同一份驗證', () => {
       items: [COMBO(3)],
       expected: 'ITEM_STOCK_INSUFFICIENT',
     },
+    {
+      name: '內用沒有桌號 + 手動售完',
+      demo: { soldOutProductIds: ['prd_black_tea'] },
+      items: [LUROU(), TEA()],
+      over: { orderType: 'DINE_IN', contact: {} },
+      expected: 'ITEM_SOLD_OUT',
+    },
     { name: '選項無效', items: [line('prd_lurou', 1, [])], expected: 'OPTION_INVALID' },
     { name: '下架 / 不存在', items: [line('prd_ghost', 1)], expected: 'ITEM_UNLISTED' },
     { name: '單行超量', items: [line('prd_danzai', 21)], expected: 'QUANTITY_EXCEEDED' },

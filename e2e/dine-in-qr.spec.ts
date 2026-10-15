@@ -31,6 +31,8 @@ test.describe('UAT-10 內用 QR 點餐', () => {
     await expect(page.getByRole('radio', { name: '外送' })).toBeDisabled();
     await expect(page.getByText('已由 QR 帶入桌號 A3，取餐方式固定為內用')).toBeVisible();
     await expect(page.getByText('桌號 A3', { exact: true })).toBeVisible();
+    // 桌號由 QR 帶入並鎖定：沒有可編輯的桌號欄，不可改成別的（或不存在的）桌號
+    await expect(page.getByRole('textbox', { name: /^桌號/ })).toHaveCount(0);
 
     // 無運費
     const summary = page.getByRole('complementary', { name: '訂單明細' });
@@ -41,7 +43,7 @@ test.describe('UAT-10 內用 QR 點餐', () => {
       summary.locator('dt', { hasText: '總計' }).locator('xpath=following-sibling::dd[1]'),
     ).toHaveText('NT$ 60');
 
-    // 內用姓名可不填；手機必填
+    // 內用的姓名與手機皆為選填；這裡只填手機，供店家聯絡
     await page.getByRole('textbox', { name: /^手機/ }).fill('0912345678');
     await submitAndWaitForOrder(page);
 
@@ -87,6 +89,8 @@ test.describe('UAT-10 內用 QR 點餐', () => {
     await page.setViewportSize({ width: 820, height: 1000 });
     await gotoApp(page, { params: { table: 'Z9' } });
     await expect(page.getByText(/找不到 QR 帶入的桌號，已改為一般點餐/)).toBeVisible();
+    // 回退文案說明桌號可以留空（內用可以沒有桌號）
+    await expect(page.getByText(/要內用請改選「內用」（桌號可留空）/)).toBeVisible();
     await expect(page.getByRole('region', { name: '內用桌號' })).toHaveCount(0);
 
     await quickAdd(page, '擔仔麵');

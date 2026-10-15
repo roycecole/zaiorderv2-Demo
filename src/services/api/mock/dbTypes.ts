@@ -66,6 +66,7 @@ export interface OrderRow {
   customer_phone: string | null;
   scheduled_at: number | null;
   estimated_ready_at: number | null;
+  /** 僅內用單且有提供桌號時為建單當下的快照；內用可以沒有桌號，故沒有「DINE_IN 必須有桌號」的約束 */
   table_no: string | null;
   delivery_city: string | null;
   delivery_district: string | null;

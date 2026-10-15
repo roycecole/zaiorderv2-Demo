@@ -1,7 +1,7 @@
 // 結帳表單驗證（VR-01、VR-02、VR-05～VR-07、VR-09～VR-14、VR-17）與請求建構
 import { describe, expect, it } from 'vitest';
 import { buildCreateOrderRequest } from '../buildRequest';
-import { checkoutFormSchema } from '../checkoutSchema';
+import { checkoutFormSchema, checkoutValuesFor } from '../checkoutSchema';
 import type { CheckoutFormValues } from '../checkoutSchema';
 import { formatPhoneInput, normalizeCouponInput } from '../checkoutHelpers';
 import { LUROU, TEA } from './fixtures';
@@ -87,12 +87,37 @@ describe('外送、桌號與時段', () => {
     );
   });
 
-  it('內用：桌號必填、1～10 字元英數字（VR-10）', () => {
-    expect(errorsOf({ orderType: 'DINE_IN', tableNo: '' }).tableNo).toBe('請輸入桌號');
+  it('內用：桌號選填（可留空 / 全空白），有填才驗 1～10 字元英數字（VR-10）', () => {
+    expect(errorsOf({ orderType: 'DINE_IN', tableNo: '' })).toEqual({});
+    expect(errorsOf({ orderType: 'DINE_IN', tableNo: '   ' })).toEqual({});
     expect(errorsOf({ orderType: 'DINE_IN', tableNo: 'A-3' }).tableNo).toBe(
       '找不到此桌號，請洽店員',
     );
+    expect(errorsOf({ orderType: 'DINE_IN', tableNo: 'A'.repeat(11) }).tableNo).toBe(
+      '找不到此桌號，請洽店員',
+    );
     expect(errorsOf({ orderType: 'DINE_IN', tableNo: 'A3' })).toEqual({});
+  });
+
+  it('自取 / 外送不檢查桌號格式（欄位只屬於內用）', () => {
+    expect(errorsOf({ orderType: 'PICKUP', tableNo: 'A-3' })).toEqual({});
+  });
+
+  it('觸控面板沒有桌號欄：checkoutValuesFor 把桌號視為空，一般模式留下的殘值不參與驗證', () => {
+    // 一般模式輸入了不符格式的桌號（A#3）後，Demo 面板即時切到觸控面板
+    const stale: CheckoutFormValues = { ...base, orderType: 'DINE_IN', tableNo: 'A#3' };
+    expect(checkoutFormSchema.safeParse(stale).success).toBe(false);
+
+    const kiosk = checkoutValuesFor(stale, true);
+    expect(kiosk.tableNo).toBe('');
+    expect(checkoutFormSchema.safeParse(kiosk).success).toBe(true);
+    // 表單本身的值不改：切回一般模式時殘值仍在，也仍會被驗證
+    expect(stale.tableNo).toBe('A#3');
+    expect(checkoutValuesFor(stale, false)).toBe(stale);
+    expect(checkoutFormSchema.safeParse(checkoutValuesFor(stale, false)).success).toBe(false);
+    // 其他欄位的錯誤不受影響（只忽略桌號）
+    const other = checkoutValuesFor({ ...stale, paymentMethod: '' }, true);
+    expect(checkoutFormSchema.safeParse(other).success).toBe(false);
   });
 
   it('預約必須選擇時段（VR-17）', () => {
@@ -221,5 +246,43 @@ describe('buildCreateOrderRequest', () => {
     expect(t.scheduledAt).toBeNull(); // 內用不預約
     expect(t.dineIn).toEqual({ tableNo: 'A3', qrToken: 'QR-A3' });
     expect(t.delivery).toBeUndefined();
+  });
+
+  it('內用沒有桌號：請求不帶 dineIn（空字串 / 全空白視同未提供）', () => {
+    const none = buildCreateOrderRequest({
+      values: { ...base, orderType: 'DINE_IN', tableNo: '', contactName: '', contactPhone: '' },
+      lines: [LUROU],
+      expectedTotal: 67,
+    });
+    expect(none.orderType).toBe('DINE_IN');
+    expect(none.dineIn).toBeUndefined();
+    expect('dineIn' in none).toBe(false);
+    expect(none.contact).toEqual({});
+
+    const blank = buildCreateOrderRequest({
+      values: { ...base, orderType: 'DINE_IN', tableNo: '   ' },
+      lines: [LUROU],
+      expectedTotal: 67,
+      qrToken: '  ',
+    });
+    expect('dineIn' in blank).toBe(false);
+  });
+
+  it('內用手動輸入桌號：只帶 tableNo（轉大寫、無 qrToken）；非內用不帶 dineIn', () => {
+    const manual = buildCreateOrderRequest({
+      values: { ...base, orderType: 'DINE_IN', tableNo: ' b2 ' },
+      lines: [LUROU],
+      expectedTotal: 67,
+    });
+    expect(manual.dineIn).toEqual({ tableNo: 'B2' });
+    expect('qrToken' in (manual.dineIn ?? {})).toBe(false);
+
+    const pickup = buildCreateOrderRequest({
+      values: { ...base, orderType: 'PICKUP', tableNo: 'A3' },
+      lines: [LUROU],
+      expectedTotal: 67,
+      qrToken: 'QR-A3',
+    });
+    expect('dineIn' in pickup).toBe(false);
   });
 });

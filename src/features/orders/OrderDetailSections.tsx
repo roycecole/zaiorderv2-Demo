@@ -96,10 +96,13 @@ export function FulfillmentSection({ order, store }: { order: Order; store: Stor
                     ? s.pickupAt(store.name)
                     : tOrders.orderType.PICKUP}
               </span>
-              {orderType === 'DINE_IN' && order.table !== undefined ? (
+              {/* 內用可以沒有桌號：有桌號才顯示「桌號 A3」，否則以取餐號碼呈現，不出現空白或 undefined 的桌號列 */}
+              {orderType === 'DINE_IN' ? (
                 <>
                   {'・'}
-                  {s.tableNo(order.table.tableNo)}
+                  {order.table !== undefined
+                    ? s.tableNo(order.table.tableNo)
+                    : s.dineInPickupNo(order.pickupNo)}
                 </>
               ) : null}
             </InfoRow>

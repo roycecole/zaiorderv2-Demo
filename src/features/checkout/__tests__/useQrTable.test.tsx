@@ -6,6 +6,7 @@ import { MemoryRouter } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useCartStore } from '@/features/cart/cartStore';
 import { fakeApi, storeInfo } from '@/features/menu/__tests__/fixtures';
+import { useInputModeStore } from '@/features/prefs/inputModeStore';
 import { ApiProvider } from '@/hooks/useApi';
 import { appSessionStorage, STORAGE_KEYS } from '@/services/storage/appStorage';
 import { forgetQrTable, rememberQrTable } from '../qrTable';
@@ -35,8 +36,12 @@ function setup(options: { url: string; resolveTable?: Resolve; dineIn?: boolean 
 beforeEach(() => {
   appSessionStorage.removeItem(STORAGE_KEYS.table);
   useCartStore.setState({ lines: [], orderType: 'PICKUP' });
+  useInputModeStore.setState({ inputMode: 'AUTO' });
 });
-afterEach(() => appSessionStorage.removeItem(STORAGE_KEYS.table));
+afterEach(() => {
+  appSessionStorage.removeItem(STORAGE_KEYS.table);
+  useInputModeStore.setState({ inputMode: 'AUTO' });
+});
 
 describe('useQrTable', () => {
   it('沒有桌位權杖：none，不查詢桌號', () => {
@@ -79,6 +84,14 @@ describe('useQrTable', () => {
     const { result } = renderHook(() => useQrTable(), { wrapper });
     await waitFor(() => expect(result.current.status).toBe('notFound'));
     expect(result.current).toMatchObject({ tableNo: null, locked: false });
+  });
+
+  it('觸控面板：內用單一律沒有桌號，不查詢也不鎖定（D8）', () => {
+    useInputModeStore.setState({ inputMode: 'KIOSK' });
+    const { resolveTable, wrapper } = setup({ url: '/?table=A3' });
+    const { result } = renderHook(() => useQrTable(), { wrapper });
+    expect(result.current).toEqual({ status: 'none', token: null, tableNo: null, locked: false });
+    expect(resolveTable).not.toHaveBeenCalled();
   });
 
   it('桌號有效但店家未開放內用：dineInOff，不鎖定', async () => {

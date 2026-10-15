@@ -31,7 +31,7 @@ export interface BuildRequestInput {
   lines: ReadonlyArray<CartLine>;
   /** 顧客目前據以送出的金額（BR-25） */
   expectedTotal: TWD;
-  /** 由 QR 帶入的權杖（手動輸入桌號時省略） */
+  /** 由 QR 帶入的權杖（手動輸入或沒有桌號時省略） */
   qrToken?: string | undefined;
 }
 
@@ -95,12 +95,13 @@ export function buildCreateOrderRequest({
     req.delivery = delivery;
   }
 
+  // 內用可以沒有桌號：桌號留空（或全空白）且沒有 QR 權杖時不帶 dineIn，由取餐號碼叫號
   if (orderType === 'DINE_IN') {
-    const dineIn: NonNullable<CreateOrderRequest['dineIn']> = {
-      tableNo: values.tableNo.trim().toUpperCase(),
-    };
-    if (qrToken !== undefined && qrToken !== '') dineIn.qrToken = qrToken;
-    req.dineIn = dineIn;
+    const dineIn: NonNullable<CreateOrderRequest['dineIn']> = {};
+    const tableNo = values.tableNo.trim().toUpperCase();
+    if (tableNo !== '') dineIn.tableNo = tableNo;
+    if (qrToken !== undefined && qrToken.trim() !== '') dineIn.qrToken = qrToken.trim();
+    if (dineIn.tableNo !== undefined || dineIn.qrToken !== undefined) req.dineIn = dineIn;
   }
 
   if (values.couponCode !== '') req.couponCode = values.couponCode;

@@ -123,12 +123,12 @@ export const useCartStore = create<CartState & CartActions>()(
       version: 1,
       storage: createJSONStorage(() => appLocalStorage),
       partialize: (s) => ({ lines: s.lines, orderType: s.orderType, updatedAt: s.updatedAt }),
-      // 還原時若已超過 24 小時，視為過期（FR-CT-04）
+      // 還原時只檢查資料形狀；24 小時過期（FR-CT-04）交給 purgeIfExpired()，
+      // 因為 store 在模組載入時就還原，此時 Demo 的時間穿梭 / 伺服器時差校正尚未套用到 getClock()，
+      // 以未校正的時鐘判斷會誤清購物車。應用程式啟動完成（時鐘就緒）後與每次進入頁面都會呼叫 purgeIfExpired()。
       merge: (persisted, current) => {
         const p = persisted as Partial<CartState> | undefined;
-        if (!p || typeof p.updatedAt !== 'number' || isCartExpired({ updatedAt: p.updatedAt }, nowMs())) {
-          return current;
-        }
+        if (!p || typeof p.updatedAt !== 'number' || !Array.isArray(p.lines)) return current;
         return { ...current, ...p };
       },
     },

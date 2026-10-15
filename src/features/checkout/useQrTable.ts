@@ -8,6 +8,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useEffect, useSyncExternalStore } from 'react';
 import { useLocation } from 'react-router';
 import { useCartStore } from '@/features/cart/cartStore';
+import { useIsKioskUi } from '@/features/prefs/inputModeStore';
 import { useStoreInfo } from '@/features/store/queries';
 import { useApi } from '@/hooks/useApi';
 import { qk } from '@/services/api/queryKeys';
@@ -41,7 +42,9 @@ export function useQrTable(): QrTableState {
   const api = useApi();
   const { search } = useLocation();
   const stored = useSyncExternalStore(subscribeQrTable, recalledQrTable, NO_TOKEN);
-  const token = qrTokenFromSearch(search) ?? stored;
+  // 觸控面板的內用單一律沒有桌號（桌號為選填，櫃檯依取餐號碼叫號）：不套用 QR 桌號
+  const kiosk = useIsKioskUi();
+  const token = kiosk ? null : (qrTokenFromSearch(search) ?? stored);
 
   const info = useStoreInfo();
   const table = useQuery({

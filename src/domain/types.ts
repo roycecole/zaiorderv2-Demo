@@ -314,7 +314,7 @@ export interface CreateOrderRequest {
     line: string;
     note?: string;
   };
-  dineIn?: { tableNo: string; qrToken?: string };
+  dineIn?: { tableNo?: string; qrToken?: string };   // 僅 DINE_IN；整個可省略，tableNo 與 qrToken 皆選填，空字串 / 全空白視為未提供（BR-22、VR-10）
   paymentMethod: PaymentMethod;
   invoice: {
     type: InvoiceType;
@@ -391,7 +391,7 @@ export interface Order {
    * lead 同 BR-08：外送 = 該單配送區的 estimated_minutes（以外送郵遞區號對應），缺值才用店家 delivery_lead_minutes；自取 = pickup_lead_minutes
    */
   acceptBy?: ISODateTime | null;
-  table?: { tableNo: string };
+  table?: { tableNo: string };      // 內用且有提供桌號時才有；沒有桌號的內用單省略（pickupNo 為叫號與領餐識別）
   delivery?: { city: string; district: string; zipCode: string; line: string; note?: string };
   items: OrderItem[];
   amounts: { subtotal: TWD; deliveryFee: TWD; discount: TWD; total: TWD };

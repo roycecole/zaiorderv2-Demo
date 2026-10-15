@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import { ToastProvider } from '@/components';
 import { useSessionStore } from '@/features/auth/sessionStore';
+import { useCartStore } from '@/features/cart/cartStore';
 import { ApiProvider } from '@/hooks/useApi';
 import type { ApiClient } from '@/services/api/ApiClient';
 import { createApiClient } from '@/services/api/createApiClient';
@@ -41,6 +42,8 @@ export function useApiBootstrap(): BootState {
     let cancelled = false;
     createApiClient({ session: sessionPort }).then(
       (client) => {
+        // 時鐘（Demo 時間穿梭 / 伺服器時差校正）此時才就緒：購物車的 24 小時過期要在這之後判斷（FR-CT-04）
+        useCartStore.getState().purgeIfExpired();
         if (!cancelled) setState({ status: 'ready', client });
       },
       (error: unknown) => {

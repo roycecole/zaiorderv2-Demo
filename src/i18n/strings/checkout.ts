@@ -242,16 +242,19 @@ export const checkout = {
   },
 
   dineIn: {
+    /** 桌號為選填（欄位標籤會自動加上「（選填）」）：內用可以沒有桌號 */
     tableNo: '桌號',
-    tableHint: '桌上的 QR Code 會自動帶入桌號；也可以手動輸入',
+    tableHint: '沒有桌號可以留空，餐點好了會依取餐號碼叫號',
     resolved: (table: string) => `桌號 ${table}`,
     checking: '正在確認桌號…',
-    notFound: '找不到此桌號，請洽店員',
+    /** 手動選內用、但 QR 帶入的桌號先前無法辨識時的說明（不是欄位錯誤，留空仍可送出） */
+    qrNotFound: '找不到 QR 帶入的桌號，可手動輸入桌號；沒有桌號也可以留空',
+    /** 觸控面板：沒有桌號輸入 */
+    noTableKiosk: '內用不需要桌號，餐點好了會依取餐號碼叫號',
     /** QR 桌號無法辨識、已回到一般點餐時的提示（03 PG-01）；與菜單頁共用同一句 */
     notFoundFallback: menu.table.notFoundFallback,
     /** QR 桌號有效但店家未開放內用，已回到一般點餐時的提示（03 PG-01） */
     unavailableFallback: menu.table.unavailableFallback,
-    required: '請輸入桌號',
     pickupAddress: (address: string) => address,
   },
 

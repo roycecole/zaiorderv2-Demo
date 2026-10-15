@@ -364,7 +364,7 @@ describe('持久化（zaiorder:v1:cart，version 1）', () => {
     expect(s.updatedAt).toBe(T0 - CART_TTL_MS + 1000);
   });
 
-  it('載入時已超過 24 小時 → 視為過期，回到預設空購物車', async () => {
+  it('載入時已超過 24 小時：還原時不判斷（時鐘尚未校正），由 purgeIfExpired() 清空', async () => {
     const saved: CartLine = {
       lineId: 'ln_1',
       productId: 'prd_lurou',
@@ -376,8 +376,27 @@ describe('持久化（zaiorder:v1:cart，version 1）', () => {
       state: { lines: [saved], orderType: 'DELIVERY', updatedAt: T0 - CART_TTL_MS - 1 },
       version: 1,
     });
+    // 還原當下不以未校正的時鐘判斷（Demo 時間穿梭 / 伺服器時差校正在其後才套用）
+    expect(useCartStore.getState().lines).toEqual([saved]);
+    useCartStore.getState().purgeIfExpired();
     expect(useCartStore.getState().lines).toEqual([]);
-    expect(useCartStore.getState().orderType).toBe('PICKUP');
+  });
+
+  it('時鐘校正後才判斷：時間穿梭到購物車更新時間附近 → 不過期', async () => {
+    const saved: CartLine = {
+      lineId: 'ln_1',
+      productId: 'prd_lurou',
+      quantity: 1,
+      optionIds: [],
+      snapshot: { name: '滷肉飯', unitPrice: 35, optionLabels: [] },
+    };
+    const { useCartStore } = await load({
+      state: { lines: [saved], orderType: 'PICKUP', updatedAt: T0 - 5 * CART_TTL_MS },
+      version: 1,
+    });
+    vi.setSystemTime(T0 - 5 * CART_TTL_MS + 60_000);
+    useCartStore.getState().purgeIfExpired();
+    expect(useCartStore.getState().lines).toEqual([saved]);
   });
 
   it('載入時資料格式不完整（無 updatedAt）→ 退回預設，不丟錯', async () => {

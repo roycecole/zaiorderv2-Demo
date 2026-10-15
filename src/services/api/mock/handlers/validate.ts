@@ -100,10 +100,19 @@ export function validateCreateRequest(req: CreateOrderRequest, key: string): voi
       }
     }
   }
-  if (req.orderType === 'DINE_IN') {
-    const t = req.dineIn?.tableNo?.trim() ?? '';
-    if (t === '' && (req.dineIn?.qrToken ?? '') === '') {
-      details.push({ field: 'dineIn.tableNo', message: '請提供桌號' });
+  // 內用可以沒有桌號：dineIn、tableNo、qrToken 皆可省略；有提供時是否為店家桌位由 evaluateOrder 以 TABLE_NOT_FOUND 回報
+  if (req.dineIn !== undefined) {
+    const d = req.dineIn as unknown;
+    if (d === null || typeof d !== 'object' || Array.isArray(d)) {
+      details.push({ field: 'dineIn', message: '內用資料格式不正確' });
+    } else {
+      const { tableNo, qrToken } = d as { tableNo?: unknown; qrToken?: unknown };
+      if (tableNo !== undefined && typeof tableNo !== 'string') {
+        details.push({ field: 'dineIn.tableNo', message: '桌號格式不正確' });
+      }
+      if (qrToken !== undefined && typeof qrToken !== 'string') {
+        details.push({ field: 'dineIn.qrToken', message: '桌位權杖格式不正確' });
+      }
     }
   }
   if (!PAYMENT_METHODS.includes(req.paymentMethod)) {

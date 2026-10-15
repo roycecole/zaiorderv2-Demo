@@ -114,11 +114,10 @@ export const checkoutFormSchema = z
       if (v.deliveryNote.trim().length > 50) fail('deliveryNote', '外送備註最多 50 字');
     }
 
-    // 桌號（VR-10）
+    // 桌號（VR-10）：內用可以沒有桌號（自由入座、先領餐號叫號）；留空不檢查，有填才驗格式
     if (v.orderType === 'DINE_IN') {
       const table = v.tableNo.trim();
-      if (table === '') fail('tableNo', '請輸入桌號');
-      else if (!TABLE_NO_RE.test(table)) fail('tableNo', '找不到此桌號，請洽店員');
+      if (table !== '' && !TABLE_NO_RE.test(table)) fail('tableNo', '找不到此桌號，請洽店員');
     }
 
     // 時段（VR-17）
@@ -155,3 +154,13 @@ export const checkoutFormSchema = z
   });
 
 export type CheckoutFormValues = z.infer<typeof checkoutFormSchema>;
+
+/**
+ * 依輸入模式取得「要驗證與送出」的表單值。
+ * 觸控面板沒有桌號欄（內用單一律不帶桌號，櫃檯依取餐號碼叫號）：桌號一律視為空，驗證、異動清單與請求都不看它。
+ * 這包含一般模式留下的殘值（含不符格式或被伺服器退回的桌號）：Demo 面板可即時預覽觸控面板，
+ * 此時畫面上已沒有可修正桌號的欄位，殘值不能再擋下送出。表單本身的值不改，切回一般模式時殘值仍可見可改。
+ */
+export function checkoutValuesFor(values: CheckoutFormValues, kiosk: boolean): CheckoutFormValues {
+  return kiosk && values.tableNo !== '' ? { ...values, tableNo: '' } : values;
+}

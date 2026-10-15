@@ -816,6 +816,8 @@ describe('外送、內用與折扣碼', () => {
     expect(await screen.findByText('桌號 A3')).toBeInTheDocument();
     await waitFor(() => expect(screen.getByRole('radio', { name: '內用' })).toBeChecked());
     expect(screen.getByRole('radio', { name: '自取' })).toBeDisabled();
+    // 桌號由 QR 帶入且鎖定：沒有可編輯的桌號欄，不能改成別的（或不存在的）桌號
+    expect(screen.queryByRole('textbox', { name: /^桌號/ })).toBeNull();
     await waitReady();
     await user.click(submitButton());
     await waitFor(() => expect(create).toHaveBeenCalled());
@@ -824,6 +826,178 @@ describe('外送、內用與折扣碼', () => {
       dineIn: { tableNo: 'A3', qrToken: 'QR-A3' },
       scheduledAt: null,
     });
+  });
+
+  it('內用沒有桌號：欄位為「桌號（選填）」並說明叫號方式；留空可送出，請求不帶 tableNo', async () => {
+    const user = userEvent.setup();
+    const { create } = mount();
+    await user.click(await screen.findByRole('radio', { name: '內用' }));
+    const table = await screen.findByRole('textbox', { name: /^桌號/ });
+    expect(table).toHaveAccessibleName('桌號（選填）');
+    expect(screen.getByText('沒有桌號可以留空，餐點好了會依取餐號碼叫號')).toBeInTheDocument();
+    expect(table).not.toHaveAttribute('aria-invalid', 'true');
+
+    await waitReady();
+    await user.click(submitButton());
+    await waitFor(() => expect(create).toHaveBeenCalled());
+    const req = (create.mock.calls[0] as [CreateOrderRequest])[0];
+    expect(req.orderType).toBe('DINE_IN');
+    expect('dineIn' in req).toBe(false);
+    expect(req.contact).toEqual({}); // 內用姓名、手機皆可不填
+    expect(await screen.findByTestId('probe')).toHaveTextContent('/orders/');
+  });
+
+  it('內用手動輸入桌號：轉大寫後只帶 tableNo（沒有 qrToken）', async () => {
+    const user = userEvent.setup();
+    const { create } = mount();
+    await user.click(await screen.findByRole('radio', { name: '內用' }));
+    await user.type(await screen.findByRole('textbox', { name: /^桌號/ }), 'a3');
+    await waitReady();
+    await user.click(submitButton());
+    await waitFor(() => expect(create).toHaveBeenCalled());
+    const req = (create.mock.calls[0] as [CreateOrderRequest])[0];
+    expect(req.dineIn).toEqual({ tableNo: 'A3' });
+  });
+
+  it('填了不存在的桌號：422 TABLE_NOT_FOUND 標示在桌號欄、留在結帳頁；改掉桌號後錯誤消失', async () => {
+    const user = userEvent.setup();
+    const { create } = mount({
+      create: async (req) => {
+        // 與伺服器一致：只有「有提供但不是店家桌位」才回 TABLE_NOT_FOUND；沒有桌號可以成立
+        if (req.dineIn?.tableNo === undefined) return createdResponse();
+        throw new FakeApiError(422, 'TABLE_NOT_FOUND', '找不到桌號', {
+          quote: {
+            ...okQuote(cartLines()),
+            valid: false,
+            checks: [
+              {
+                code: 'TABLE_NOT_FOUND',
+                severity: 'ERROR',
+                message: '找不到這個桌號，請洽店員',
+                field: 'dineIn.tableNo',
+              },
+            ],
+          },
+        });
+      },
+    });
+    await user.click(await screen.findByRole('radio', { name: '內用' }));
+    const table = await screen.findByRole('textbox', { name: /^桌號/ });
+    await user.type(table, 'z9');
+    await waitReady();
+    await user.click(submitButton());
+
+    await waitFor(() => expect(table).toHaveAttribute('aria-invalid', 'true'));
+    expect(table).toHaveAccessibleDescription(/找不到這個桌號，請洽店員協助/);
+    expect(screen.queryByTestId('probe')).toBeNull();
+    expect(create).toHaveBeenCalledTimes(1);
+    expect((create.mock.calls[0] as [CreateOrderRequest])[0].dineIn).toEqual({ tableNo: 'Z9' });
+
+    // 桌號可以改成留空：錯誤標示隨欄位變更移除，再次送出即成立（請求不帶桌號）
+    await user.clear(table);
+    await waitFor(() => expect(table).not.toHaveAttribute('aria-invalid', 'true'));
+    await user.click(submitButton());
+    await waitFor(() => expect(create).toHaveBeenCalledTimes(2));
+    expect('dineIn' in (create.mock.calls[1] as [CreateOrderRequest])[0]).toBe(false);
+    expect(await screen.findByTestId('probe')).toHaveTextContent('/orders/');
+  });
+
+  it('桌號被退回後改選自取：桌號異動隨取餐方式移除，不再鎖住送出，請求不帶 dineIn', async () => {
+    const user = userEvent.setup();
+    const { create } = mount({
+      create: async (req) => {
+        if (req.dineIn?.tableNo === undefined) return createdResponse();
+        throw new FakeApiError(422, 'TABLE_NOT_FOUND', '找不到桌號', {
+          quote: {
+            ...okQuote(cartLines()),
+            valid: false,
+            checks: [
+              {
+                code: 'TABLE_NOT_FOUND',
+                severity: 'ERROR',
+                message: '找不到這個桌號，請洽店員',
+                field: 'dineIn.tableNo',
+              },
+            ],
+          },
+        });
+      },
+    });
+    await user.click(await screen.findByRole('radio', { name: '內用' }));
+    const table = await screen.findByRole('textbox', { name: /^桌號/ });
+    await user.type(table, 'z9');
+    await waitReady();
+    await user.click(submitButton());
+    await waitFor(() => expect(table).toHaveAttribute('aria-invalid', 'true'));
+    expect(create).toHaveBeenCalledTimes(1);
+
+    // 改選自取：桌號欄已不在畫面上，被退回的桌號異動不得繼續佔著「需要處理」與鎖定送出
+    await user.click(screen.getByRole('radio', { name: '自取' }));
+    expect(screen.queryByRole('textbox', { name: /^桌號/ })).toBeNull();
+    await fillContact(user);
+    await waitReady();
+    await waitFor(() => expect(submitButton()).toHaveAccessibleName(/送出訂單/));
+    expect(submitButton()).not.toHaveAttribute('aria-disabled', 'true');
+    expect(screen.queryByText(/找不到這個桌號/)).toBeNull();
+    expect(screen.queryByRole('button', { name: '確認桌號' })).toBeNull();
+
+    await user.click(submitButton());
+    await waitFor(() => expect(create).toHaveBeenCalledTimes(2));
+    const req = (create.mock.calls[1] as [CreateOrderRequest])[0];
+    expect(req.orderType).toBe('PICKUP');
+    expect('dineIn' in req).toBe(false);
+    expect(await screen.findByTestId('probe')).toHaveTextContent('/orders/');
+  });
+
+  it('桌號被退回後改選自取、再切回內用：桌號沒改仍是被退回的值，錯誤標示回到桌號欄', async () => {
+    const user = userEvent.setup();
+    const { create } = mount({
+      create: async () => {
+        throw new FakeApiError(422, 'TABLE_NOT_FOUND', '找不到桌號', {
+          quote: {
+            ...okQuote(cartLines()),
+            valid: false,
+            checks: [
+              {
+                code: 'TABLE_NOT_FOUND',
+                severity: 'ERROR',
+                message: '找不到這個桌號，請洽店員',
+                field: 'dineIn.tableNo',
+              },
+            ],
+          },
+        });
+      },
+    });
+    await user.click(await screen.findByRole('radio', { name: '內用' }));
+    await user.type(await screen.findByRole('textbox', { name: /^桌號/ }), 'z9');
+    await waitReady();
+    await user.click(submitButton());
+    await waitFor(() => expect(create).toHaveBeenCalledTimes(1));
+
+    await user.click(screen.getByRole('radio', { name: '自取' }));
+    expect(screen.queryByText(/找不到這個桌號/)).toBeNull();
+    await user.click(screen.getByRole('radio', { name: '內用' }));
+    const table = await screen.findByRole('textbox', { name: /^桌號/ });
+    expect(table).toHaveValue('Z9');
+    await waitFor(() => expect(table).toHaveAttribute('aria-invalid', 'true'));
+  });
+
+  it('桌號格式不符（VR-10）：標示在桌號欄且不送出；留空則通過', async () => {
+    const user = userEvent.setup();
+    const { create } = mount();
+    await user.click(await screen.findByRole('radio', { name: '內用' }));
+    const table = await screen.findByRole('textbox', { name: /^桌號/ });
+    await user.type(table, 'A-3');
+    await waitReady();
+    await user.click(submitButton());
+    expect(await screen.findAllByText('找不到此桌號，請洽店員')).not.toHaveLength(0);
+    expect(table).toHaveAttribute('aria-invalid', 'true');
+    expect(create).not.toHaveBeenCalled();
+
+    await user.clear(table);
+    await user.click(submitButton());
+    await waitFor(() => expect(create).toHaveBeenCalled());
   });
 
   it('QR 桌號無法辨識：維持一般點餐並提示（03 PG-01）', async () => {
@@ -894,5 +1068,198 @@ describe('觸控面板模式（BR-36、03 §5.6）', () => {
     expect(screen.queryByText(/記住我的資料/)).toBeNull();
     expect(screen.queryByText(/已有帳號？/)).toBeNull();
     expect(screen.queryByText('Ctrl/⌘ + Enter')).toBeNull();
+  });
+
+  it('內用沒有桌號輸入：不因缺桌號而被擋下，請求不帶 dineIn（D8）', async () => {
+    const user = userEvent.setup();
+    useInputModeStore.setState({ inputMode: 'KIOSK' });
+    useCartStore.setState({ orderType: 'DINE_IN' });
+    const { create } = mount();
+    await waitReady();
+    expect(screen.getByRole('radio', { name: '內用' })).toBeChecked();
+    expect(screen.queryByRole('textbox', { name: /^桌號/ })).toBeNull();
+    expect(screen.getByText('內用不需要桌號，餐點好了會依取餐號碼叫號')).toBeInTheDocument();
+
+    await user.click(submitButton());
+    await waitFor(() => expect(create).toHaveBeenCalled());
+    const req = (create.mock.calls[0] as [CreateOrderRequest])[0];
+    expect(req.orderType).toBe('DINE_IN');
+    expect('dineIn' in req).toBe(false);
+  });
+
+  it('網址帶 ?table= 也不套用：不查詢桌號、不鎖定、請求不帶桌號（內用單一律無桌號）', async () => {
+    const user = userEvent.setup();
+    useInputModeStore.setState({ inputMode: 'KIOSK' });
+    useCartStore.setState({ orderType: 'DINE_IN' });
+    const resolveTable = vi.fn(async () => ({ tableNo: 'A3', seats: 4 }));
+    const { create } = mount({ route: '/checkout?table=QR-A3', store: { resolveTable } });
+    await waitReady();
+    expect(resolveTable).not.toHaveBeenCalled();
+    expect(screen.queryByText(/已由 QR 帶入桌號/)).toBeNull();
+    expect(screen.getByRole('radio', { name: '外帶' })).toBeEnabled();
+
+    await user.click(submitButton());
+    await waitFor(() => expect(create).toHaveBeenCalled());
+    expect('dineIn' in (create.mock.calls[0] as [CreateOrderRequest])[0]).toBe(false);
+  });
+});
+
+// Demo 面板的「輸入模式 = 觸控面板」是即時預覽（儲存仍為一般模式、草稿保留）：切換前在一般模式留下的桌號殘值，
+// 切換後畫面上沒有桌號欄可以修正，因此不得再參與驗證、異動清單與送出鈕狀態
+describe('即時切換為觸控面板：一般模式的桌號殘值一律忽略', () => {
+  const tableNotFound = (): Promise<never> =>
+    Promise.reject(
+      new FakeApiError(422, 'TABLE_NOT_FOUND', '找不到桌號', {
+        quote: {
+          ...okQuote(cartLines()),
+          valid: false,
+          checks: [
+            {
+              code: 'TABLE_NOT_FOUND',
+              severity: 'ERROR',
+              message: '找不到這個桌號，請洽店員',
+              field: 'dineIn.tableNo',
+            },
+          ],
+        },
+      }),
+    );
+
+  /** 同 Demo 面板：切換輸入模式（寫入執行期旗標，不重新載入頁面） */
+  const switchInputMode = (mode: 'AUTO' | 'KIOSK'): void => {
+    act(() => {
+      useInputModeStore.setState({ inputMode: mode });
+    });
+  };
+
+  it('(a) 輸入格式不符的桌號後切到觸控面板：不被桌號擋下、沒有看不到欄位的錯誤摘要，請求不帶桌號', async () => {
+    const user = userEvent.setup();
+    const { create } = mount();
+    await user.click(await screen.findByRole('radio', { name: '內用' }));
+    await user.type(await screen.findByRole('textbox', { name: /^桌號/ }), 'a#3');
+    await waitReady();
+
+    switchInputMode('KIOSK');
+    await waitFor(() => expect(screen.queryByRole('textbox', { name: /^桌號/ })).toBeNull());
+    expect(screen.getByText('內用不需要桌號，餐點好了會依取餐號碼叫號')).toBeInTheDocument();
+
+    await user.click(submitButton());
+    await waitFor(() => expect(create).toHaveBeenCalled());
+    expect(screen.queryByText(/個欄位需要修正/)).toBeNull();
+    const req = (create.mock.calls[0] as [CreateOrderRequest])[0];
+    expect(req.orderType).toBe('DINE_IN');
+    expect('dineIn' in req).toBe(false);
+    expect(await screen.findByTestId('probe')).toHaveTextContent('/orders/');
+  });
+
+  it('(a) 已經因桌號格式被擋下（錯誤摘要與欄位錯誤已顯示）再切到觸控面板：摘要消失，可送出；切回一般模式殘值仍可見可改', async () => {
+    const user = userEvent.setup();
+    const { create } = mount();
+    await user.click(await screen.findByRole('radio', { name: '內用' }));
+    const table = await screen.findByRole('textbox', { name: /^桌號/ });
+    await user.type(table, 'a#3');
+    await waitReady();
+    await user.click(submitButton());
+    expect(await screen.findByText('有 1 個欄位需要修正')).toBeInTheDocument();
+    expect(table).toHaveAttribute('aria-invalid', 'true');
+    expect(create).not.toHaveBeenCalled();
+
+    switchInputMode('KIOSK');
+    await waitFor(() => expect(screen.queryByText(/個欄位需要修正/)).toBeNull());
+    expect(screen.queryByRole('textbox', { name: /^桌號/ })).toBeNull();
+    await waitFor(() => expect(submitButton()).not.toHaveAttribute('aria-disabled', 'true'));
+
+    // 切回一般模式（尚未送出）：桌號殘值仍在欄位上，可以修正
+    switchInputMode('AUTO');
+    const back = await screen.findByRole('textbox', { name: /^桌號/ });
+    expect(back).toHaveValue('A#3');
+    await user.clear(back);
+    await user.type(back, 'b2');
+    expect(back).toHaveValue('B2');
+    await user.click(submitButton());
+    await waitFor(() => expect(create).toHaveBeenCalled());
+    expect((create.mock.calls[0] as [CreateOrderRequest])[0].dineIn).toEqual({ tableNo: 'B2' });
+  });
+
+  it('(b) 桌號被 422 TABLE_NOT_FOUND 退回後切到觸控面板：不再有「確認桌號」、送出鈕恢復，請求不帶桌號', async () => {
+    const user = userEvent.setup();
+    const { create } = mount({
+      create: async (req) => {
+        if (req.dineIn?.tableNo === undefined) return createdResponse();
+        return tableNotFound();
+      },
+    });
+    await user.click(await screen.findByRole('radio', { name: '內用' }));
+    const table = await screen.findByRole('textbox', { name: /^桌號/ });
+    await user.type(table, 'z99');
+    await waitReady();
+    await user.click(submitButton());
+    await waitFor(() => expect(table).toHaveAttribute('aria-invalid', 'true'));
+    await waitFor(() => expect(submitButton()).toHaveAttribute('aria-disabled', 'true'));
+    expect(screen.getByRole('button', { name: '確認桌號' })).toBeInTheDocument();
+    expect(create).toHaveBeenCalledTimes(1);
+
+    switchInputMode('KIOSK');
+    await waitFor(() => expect(screen.queryByRole('textbox', { name: /^桌號/ })).toBeNull());
+    // 異動清單的桌號項目隨之消失（沒有桌號欄可以定位），送出鈕不再鎖定
+    await waitFor(() => expect(screen.queryByRole('button', { name: '確認桌號' })).toBeNull());
+    expect(screen.queryByText(/找不到這個桌號/)).toBeNull();
+    await waitFor(() => expect(submitButton()).not.toHaveAttribute('aria-disabled', 'true'));
+    expect(submitButton()).toHaveAccessibleName(/送出訂單/);
+
+    await user.click(submitButton());
+    await waitFor(() => expect(create).toHaveBeenCalledTimes(2));
+    const req = (create.mock.calls[1] as [CreateOrderRequest])[0];
+    expect(req.orderType).toBe('DINE_IN');
+    expect('dineIn' in req).toBe(false);
+    expect(await screen.findByTestId('probe')).toHaveTextContent('/orders/');
+  });
+
+  it('(b) 切回一般模式：被退回的桌號沒改就仍是錯誤，標示在桌號欄並鎖定送出', async () => {
+    const user = userEvent.setup();
+    const { create } = mount({
+      create: async (req) => {
+        if (req.dineIn?.tableNo === undefined) return createdResponse();
+        return tableNotFound();
+      },
+    });
+    await user.click(await screen.findByRole('radio', { name: '內用' }));
+    await user.type(await screen.findByRole('textbox', { name: /^桌號/ }), 'z99');
+    await waitReady();
+    await user.click(submitButton());
+    await waitFor(() => expect(create).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(submitButton()).toHaveAttribute('aria-disabled', 'true'));
+
+    switchInputMode('KIOSK');
+    await waitFor(() => expect(submitButton()).not.toHaveAttribute('aria-disabled', 'true'));
+
+    switchInputMode('AUTO');
+    const table = await screen.findByRole('textbox', { name: /^桌號/ });
+    expect(table).toHaveValue('Z99');
+    await waitFor(() => expect(table).toHaveAttribute('aria-invalid', 'true'));
+    expect(table).toHaveAccessibleDescription(/找不到這個桌號，請洽店員協助/);
+    await waitFor(() => expect(submitButton()).toHaveAttribute('aria-disabled', 'true'));
+    // 異動清單在處理完時已收合（不自動重新展開）：按下鎖定的送出鈕才展開，且「確認桌號」現在有欄位可定位
+    await user.click(submitButton());
+    expect(await screen.findByRole('button', { name: '確認桌號' })).toBeInTheDocument();
+  });
+
+  it('(c) 掃 QR 進來的桌號也不再套用：不鎖定取餐方式、請求不帶 qrToken', async () => {
+    const user = userEvent.setup();
+    const resolveTable = vi.fn(async () => ({ tableNo: 'A3', seats: 4 }));
+    const { create } = mount({ route: '/checkout?table=QR-A3', store: { resolveTable } });
+    expect(await screen.findByText('桌號 A3')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole('radio', { name: '內用' })).toBeChecked());
+    expect(screen.getByRole('radio', { name: '自取' })).toBeDisabled();
+
+    switchInputMode('KIOSK');
+    await waitFor(() => expect(screen.queryByText('桌號 A3')).toBeNull());
+    expect(screen.getByRole('radio', { name: '外帶' })).toBeEnabled();
+    await waitReady();
+    await user.click(submitButton());
+    await waitFor(() => expect(create).toHaveBeenCalled());
+    const req = (create.mock.calls[0] as [CreateOrderRequest])[0];
+    expect(req.orderType).toBe('DINE_IN');
+    expect('dineIn' in req).toBe(false);
   });
 });

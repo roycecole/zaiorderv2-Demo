@@ -8,6 +8,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Info, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { FormProvider, useForm, useWatch } from 'react-hook-form';
+import type { Resolver } from 'react-hook-form';
 import { Link, Navigate, useNavigate, useSearchParams } from 'react-router';
 import {
   Checkbox,
@@ -63,7 +64,7 @@ import { buildCreateOrderRequest } from './buildRequest';
 import { clearDraft, keyStateOf, loadDraft, saveDraft } from './checkoutDraft';
 import type { CheckoutDraft } from './checkoutDraft';
 import { qrTokenFromSearch, recalledQrTable } from './qrTable';
-import { checkoutFormSchema, ZIP_RE } from './checkoutSchema';
+import { checkoutFormSchema, checkoutValuesFor, ZIP_RE } from './checkoutSchema';
 import type { CheckoutFormValues } from './checkoutSchema';
 import {
   calendarOf,
@@ -72,6 +73,7 @@ import {
   formatPhoneInput,
   hasCouponError,
   isStickyIssue,
+  isTableIssue,
   issueSignature,
   makeAck,
   slotContextOf,
@@ -291,7 +293,8 @@ function stickyValueOf(issue: CheckoutIssue, v: CheckoutFormValues): string {
   const f = issue.field ?? '';
   if (f === 'paymentMethod') return v.paymentMethod;
   if (f.startsWith('invoice')) return invoiceValue(v);
-  if (f === 'dineIn.tableNo') return v.tableNo;
+  // 桌號異動只在「內用」且桌號沒改時有效：改選自取 / 外送後桌號欄已不在畫面上，不能繼續佔著清單並鎖住送出
+  if (f === 'dineIn.tableNo') return `${v.orderType}|${v.tableNo}`;
   return '';
 }
 
@@ -357,8 +360,15 @@ function CheckoutContent({ info }: { info: StoreInfo }) {
   // ── 草稿與表單 ──
   const [draft0] = useState(() => loadDraft());
   const [defaults] = useState(() => buildDefaults({ info, cartOrderType, draft: draft0, kiosk }));
+  // 觸控面板沒有桌號欄：驗證時桌號一律視為空（一般模式留下的殘值不參與驗證，否則錯誤摘要會指向看不到的欄位）。
+  // Demo 面板可即時切換輸入模式，所以由 kiosk 決定；RHF 每次渲染都讀取最新的 resolver。
+  const resolver = useMemo<Resolver<CheckoutFormValues>>(() => {
+    const base = zodResolver(checkoutFormSchema);
+    return (formValues, context, options) =>
+      base(checkoutValuesFor(formValues, kiosk), context, options);
+  }, [kiosk]);
   const form = useForm<CheckoutFormValues>({
-    resolver: zodResolver(checkoutFormSchema),
+    resolver,
     defaultValues: defaults,
     mode: 'onBlur',
   });
@@ -374,8 +384,11 @@ function CheckoutContent({ info }: { info: StoreInfo }) {
   const [completed, setCompleted] = useState(false);
 
   // QR 桌號（FR-CK-05）：URL 的 ?table= 優先，其次本分頁記下的桌位（站內導覽不帶查詢字串），最後是草稿
-  const [qrToken] = useState<string | null>(
-    () => qrTokenFromSearch(`?${searchParams.toString()}`) ?? recalledQrTable() ?? draft0.qrToken,
+  // 觸控面板的內用單一律沒有桌號：不套用 QR 桌號
+  const [qrToken] = useState<string | null>(() =>
+    kiosk
+      ? null
+      : (qrTokenFromSearch(`?${searchParams.toString()}`) ?? recalledQrTable() ?? draft0.qrToken),
   );
 
   const persist = useCallback((): void => {
@@ -416,6 +429,11 @@ function CheckoutContent({ info }: { info: StoreInfo }) {
     }
   }, [methods, form, setValue]);
 
+  // 切到觸控面板（沒有桌號欄）：先前在一般模式留下的桌號錯誤一併清除（切回一般模式時由驗證重新產生）
+  useEffect(() => {
+    if (kiosk) form.clearErrors('tableNo');
+  }, [kiosk, form]);
+
   // ── QR 桌號解析 ──
   const tableQuery = useQuery({
     queryKey: qk.store.table(qrToken ?? ''),
@@ -424,8 +442,9 @@ function CheckoutContent({ info }: { info: StoreInfo }) {
     staleTime: Infinity,
     retry: false,
   });
-  const qrTable = tableQuery.data?.tableNo ?? null;
-  const qrFailed = tableQuery.isError;
+  // 觸控面板不套用 QR 桌號（即時預覽時 qrToken 可能是一般模式留下的）：不鎖定取餐方式、請求不帶 qrToken
+  const qrTable = kiosk ? null : (tableQuery.data?.tableNo ?? null);
+  const qrFailed = !kiosk && tableQuery.isError;
   useEffect(() => {
     if (qrTable === null) return;
     setValue('tableNo', qrTable);
@@ -581,13 +600,25 @@ function CheckoutContent({ info }: { info: StoreInfo }) {
   const [ack, setAck] = useState<PriceAck | null>(null);
   const [sticky, setSticky] = useState<StickyIssue[]>([]);
 
+  // 觸控面板沒有桌號欄：桌號異動（TABLE_NOT_FOUND）一律不產生，否則「確認桌號」會指向不存在的欄位，
+  // 並鎖住送出鈕而顧客無從修正。被退回的 error.quote 會留在報價快取，切回一般模式後才再次顯示。
+  const deriveIssues = useCallback(
+    (...args: Parameters<typeof deriveCheckoutIssues>): ReturnType<typeof deriveCheckoutIssues> => {
+      const derived = deriveCheckoutIssues(...args);
+      return kiosk
+        ? { ...derived, issues: derived.issues.filter((i) => !isTableIssue(i)) }
+        : derived;
+    },
+    [kiosk],
+  );
+
   const evaluate = useCallback(
     (q: QuoteResponse, lineIds: ReadonlyArray<string>, cartLines: ReadonlyArray<CartLine>) => {
       const shown = computeShown(q, lineIds, cartLines, ack, seenDiscount);
-      const derived = deriveCheckoutIssues(q, lineIds, cartLines, shown, previousQuote);
+      const derived = deriveIssues(q, lineIds, cartLines, shown, previousQuote);
       return { ...derived, shown };
     },
-    [ack, seenDiscount, previousQuote],
+    [ack, seenDiscount, previousQuote, deriveIssues],
   );
 
   const evaluation = useMemo(() => {
@@ -596,14 +627,25 @@ function CheckoutContent({ info }: { info: StoreInfo }) {
   }, [quoteResult, lines, evaluate]);
 
   const issues: CheckoutIssue[] = useMemo(() => {
-    const derived = evaluation?.issues ?? [];
+    // 付款方式、發票與桌號不在報價請求內：改過這些欄位不會換新報價，被退回的 error.quote 會一直留在快取；
+    // 欄位值已不是被退回的那一個時，把對應的異動一併移除，顧客才能修正後再次送出（時段改選會換報價，不在此列）
+    const edited = new Set(
+      sticky
+        .filter((x) => x.issue.kind !== 'SLOT' && !stickyStillValid(x, values))
+        .map((x) => `${x.issue.code}|${x.issue.field ?? ''}`),
+    );
+    const derived = (evaluation?.issues ?? []).filter(
+      (i) => !edited.has(`${i.code}|${i.field ?? ''}`),
+    );
     const seen = new Set(derived.map((i) => `${i.code}|${i.field ?? ''}`));
     const extra = sticky
       .filter((s) => stickyStillValid(s, values))
       .map((s) => s.issue)
-      .filter((i) => !seen.has(`${i.code}|${i.field ?? ''}`));
+      .filter((i) => !seen.has(`${i.code}|${i.field ?? ''}`))
+      // 觸控面板沒有桌號欄：一般模式留下的桌號異動不顯示（sticky 本身保留，切回一般模式再現）
+      .filter((i) => !(kiosk && isTableIssue(i)));
     return [...derived, ...extra].sort((a, b) => kindRank(a) - kindRank(b));
-  }, [evaluation, sticky, values]);
+  }, [evaluation, sticky, values, kiosk]);
 
   const blocking = blockingCount(issues);
   const priceCount = issues.filter((i) => i.kind === 'PRICE').length;
@@ -798,7 +840,10 @@ function CheckoutContent({ info }: { info: StoreInfo }) {
     return () => clearTimeout(id);
   }, [cooldownUntil]);
 
-  const fieldErrorCount = Object.keys(form.formState.errors).length;
+  // 觸控面板沒有桌號欄：桌號錯誤不計入摘要（切換當下已清除，這裡防止殘留）
+  const fieldErrorCount = Object.keys(form.formState.errors).filter(
+    (name) => !(kiosk && name === 'tableNo'),
+  ).length;
 
   // ── 欄位聚焦 ──
   const focusField = useCallback(
@@ -817,9 +862,11 @@ function CheckoutContent({ info }: { info: StoreInfo }) {
   );
 
   const focusFirstFieldError = useCallback((): void => {
-    const first = FIELD_ORDER.find((n) => form.getFieldState(n).error !== undefined);
+    const first = FIELD_ORDER.find(
+      (n) => !(kiosk && n === 'tableNo') && form.getFieldState(n).error !== undefined,
+    );
     if (first !== undefined) focusField(first);
-  }, [form, focusField]);
+  }, [form, focusField, kiosk]);
 
   // ── 取餐方式切換 ──
   const changeOrderType = useCallback(
@@ -993,6 +1040,21 @@ function CheckoutContent({ info }: { info: StoreInfo }) {
     return hit === undefined ? undefined : t.errors.message(hit.code, hit.message);
   };
 
+  // 桌號有填但不是店家桌位（TABLE_NOT_FOUND，只出現在送出被退回的 error.quote）：欄位值仍是被退回的那一個時標示在桌號欄，
+  // 改過（含清空）即移除標示，再次送出由伺服器重驗；沒有桌號不會觸發這個錯誤（內用可以沒有桌號）
+  const tableRejected = kiosk
+    ? undefined
+    : sticky.find(
+        (x) =>
+          (x.issue.field ?? '') === 'dineIn.tableNo' &&
+          x.issue.blocking &&
+          stickyStillValid(x, values),
+      );
+  const tableServerError =
+    tableRejected === undefined
+      ? undefined
+      : t.errors.message(tableRejected.issue.code, tableRejected.issue.message);
+
   // ── 送出管線 ──
   const quoteCacheKey = useMemo(
     () =>
@@ -1005,12 +1067,13 @@ function CheckoutContent({ info }: { info: StoreInfo }) {
   const buildBody = useCallback(
     (expectedTotal: number): CreateOrderRequest =>
       buildCreateOrderRequest({
-        values: form.getValues(),
+        // 桌號為選填：留空（或觸控面板，沒有桌號輸入）時請求不帶 tableNo
+        values: checkoutValuesFor(form.getValues(), kiosk),
         lines: useCartStore.getState().lines,
         expectedTotal,
         qrToken: qrTable !== null ? (qrToken ?? undefined) : undefined,
       }),
-    [form, qrTable, qrToken],
+    [form, kiosk, qrTable, qrToken],
   );
 
   const snapshotTotal = useCallback(
@@ -1148,7 +1211,7 @@ function CheckoutContent({ info }: { info: StoreInfo }) {
       const lineIds = cartLines.map((l) => l.lineId);
       queryClient.setQueryData(quoteCacheKey, { quote: f.quote, lineIds });
       const shown = computeShown(f.quote, lineIds, cartLines, ack, seenDiscount);
-      const derived = deriveCheckoutIssues(f.quote, lineIds, cartLines, shown, quote ?? undefined);
+      const derived = deriveIssues(f.quote, lineIds, cartLines, shown, quote ?? undefined);
       if (quote !== null) setRejection({ currentJson: JSON.stringify(f.quote), previous: quote });
 
       suppressAnnounceRef.current = true;
@@ -1206,7 +1269,10 @@ function CheckoutContent({ info }: { info: StoreInfo }) {
     if (f.code === 'VALIDATION_FAILED') {
       for (const d of f.details ?? []) {
         const name = d.field !== undefined ? SERVER_FIELD_MAP[d.field] : undefined;
-        if (name !== undefined) form.setError(name, { type: 'server', message: d.message });
+        // 觸控面板沒有桌號欄：不把桌號錯誤標到看不到的欄位
+        if (name !== undefined && !(kiosk && name === 'tableNo')) {
+          form.setError(name, { type: 'server', message: d.message });
+        }
       }
       setValidationShown(true);
       setAlert({ kind: 'VALIDATION', message: T.alert.validation });
@@ -1339,13 +1405,7 @@ function CheckoutContent({ info }: { info: StoreInfo }) {
         // 預檢發現的異動屬使用者按下送出的結果：以送出前顯示的報價作為「前一次報價」（剛剛被訂走了）
         const preShown = computeShown(fresh.quote, fresh.lineIds, cartLines, ack, seenDiscount);
         const ev = {
-          ...deriveCheckoutIssues(
-            fresh.quote,
-            fresh.lineIds,
-            cartLines,
-            preShown,
-            quote ?? undefined,
-          ),
+          ...deriveIssues(fresh.quote, fresh.lineIds, cartLines, preShown, quote ?? undefined),
           shown: preShown,
         };
         const d = decideSubmit(ev.issues, ev.shown.total, fresh.quote.total, {
@@ -1733,7 +1793,8 @@ function CheckoutContent({ info }: { info: StoreInfo }) {
                 qrTable={qrTable}
                 qrFailed={qrFailed}
                 qrDineInOff={qrDineInOff}
-                tableChecking={tableQuery.isPending && qrToken !== null}
+                tableChecking={!kiosk && tableQuery.isPending && qrToken !== null}
+                tableServerError={tableServerError}
               />
               <ContactSection
                 orderType={orderType}

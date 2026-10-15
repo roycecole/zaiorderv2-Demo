@@ -1,6 +1,7 @@
 // orders.create：FLOW-22 管線（冪等 → 結算逾期 → 驗證 → PRICE_CHANGED → 計入）、失敗注入與預備情境
 import { afterEach, describe, expect, it } from 'vitest';
 import { COMBO, LUROU, TEA, createReq, line, newKey, quoteReq, rejection, setup } from './harness';
+import type { CreateOrderRequest } from '@/domain/types';
 import type { Harness } from './harness';
 
 let h: Harness;
@@ -78,6 +79,61 @@ describe('成功建單', () => {
     expect(t.order.pickupNo).toBe('T001');
     expect(t.order.table).toEqual({ tableNo: 'A3' });
     expect(t.order.customer).toBeUndefined();
+  });
+
+  it('內用可以沒有桌號：不帶 dineIn 也成立，order.table 省略、取餐號碼仍為 T 前綴、table_no 為 null', async () => {
+    h = setup();
+    const res = await h.client.orders.create(
+      createReq([TEA()], 25, { orderType: 'DINE_IN', contact: {} }),
+      newKey(),
+    );
+    expect(res.order).toMatchObject({ orderType: 'DINE_IN', status: 'PENDING', pickupNo: 'T001' });
+    expect(res.order.table).toBeUndefined();
+    expect('table' in res.order).toBe(false);
+    expect(res.order.delivery).toBeUndefined();
+    const db = JSON.parse(h.storage.getItem('zaiorder:v1:db') ?? '{}') as {
+      orders: Array<{ id: string; table_no: string | null; order_type: string }>;
+    };
+    const row = db.orders.find((o) => o.id === res.order.id);
+    expect(row).toMatchObject({ order_type: 'DINE_IN', table_no: null });
+    // 以追蹤權杖再讀一次（訪客訂單頁的路徑）也沒有桌號
+    const again = await h.client.orders.get(res.order.id, { trackingToken: res.trackingToken ?? '' });
+    expect('table' in again).toBe(false);
+  });
+
+  it('dineIn 為空物件 / tableNo 與 qrToken 為空字串或全空白：視同未提供，不檢查、不報錯', async () => {
+    h = setup();
+    for (const dineIn of [{}, { tableNo: '' }, { tableNo: '   ' }, { tableNo: '', qrToken: '  ' }]) {
+      const res = await h.client.orders.create(
+        createReq([TEA()], 25, { orderType: 'DINE_IN', dineIn, contact: {} }),
+        newKey(),
+      );
+      expect(res.order.orderType).toBe('DINE_IN');
+      expect(res.order.table).toBeUndefined();
+    }
+  });
+
+  it('內用有提供桌號：手動桌號不分大小寫、QR 權杖優先，快照為店家桌號', async () => {
+    h = setup();
+    const manual = await h.client.orders.create(
+      createReq([TEA()], 25, { orderType: 'DINE_IN', dineIn: { tableNo: ' a2 ' }, contact: {} }),
+      newKey(),
+    );
+    expect(manual.order.table).toEqual({ tableNo: 'A2' });
+    const qr = await h.client.orders.create(
+      createReq([TEA()], 25, {
+        orderType: 'DINE_IN',
+        dineIn: { tableNo: 'A2', qrToken: 'a4' },
+        contact: {},
+      }),
+      newKey(),
+    );
+    expect(qr.order.table).toEqual({ tableNo: 'A4' });
+    const tokenOnly = await h.client.orders.create(
+      createReq([TEA()], 25, { orderType: 'DINE_IN', dineIn: { qrToken: 'A5' }, contact: {} }),
+      newKey(),
+    );
+    expect(tokenOnly.order.table).toEqual({ tableNo: 'A5' });
   });
 
   it('同一營業日的取餐號碼遞增；他人訂單 X 前綴不影響 A', async () => {
@@ -249,6 +305,74 @@ describe('422 / 409 與 error.quote（FLOW-22）', () => {
       ),
     );
     expect(table.code).toBe('TABLE_NOT_FOUND');
+  });
+
+  it('內用有提供桌號但無效 → 422 TABLE_NOT_FOUND（落點 dineIn.tableNo）；格式不符（VR-10）、停用桌位、無效權杖同', async () => {
+    h = setup();
+    const tryTable = async (dineIn: NonNullable<CreateOrderRequest['dineIn']>) => {
+      const err = await rejection(
+        h.client.orders.create(
+          createReq([TEA()], 25, { orderType: 'DINE_IN', dineIn, contact: {} }),
+          newKey(),
+        ),
+      );
+      expect(err.status).toBe(422);
+      expect(err.code).toBe('TABLE_NOT_FOUND');
+      expect(err.body?.quote?.checks).toEqual([
+        expect.objectContaining({ code: 'TABLE_NOT_FOUND', field: 'dineIn.tableNo' }),
+      ]);
+      expect(err.body?.details?.map((d) => d.field)).toEqual(['dineIn.tableNo']);
+    };
+    await tryTable({ tableNo: 'Z9' });
+    await tryTable({ tableNo: 'A-3' });
+    await tryTable({ tableNo: 'A'.repeat(11) });
+    await tryTable({ qrToken: 'NOPE' });
+    await tryTable({ tableNo: 'A3', qrToken: 'NOPE' }); // 權杖優先，無效就是無效
+    // 被拒絕的請求沒有建單
+    const db = JSON.parse(h.storage.getItem('zaiorder:v1:db') ?? '{}') as {
+      orders: Array<{ order_type: string; user_id: string | null }>;
+    };
+    expect(db.orders.filter((o) => o.order_type === 'DINE_IN')).toHaveLength(0);
+  });
+
+  it('錯誤碼優先序不變（06 §3.2）：庫存 > 桌號；其他條件都通過時才輪到桌號', async () => {
+    h = setup({ demo: { soldOutProductIds: ['prd_black_tea'] } });
+    const err = await rejection(
+      h.client.orders.create(
+        createReq([TEA()], 25, { orderType: 'DINE_IN', dineIn: { tableNo: 'Z9' }, contact: {} }),
+        newKey(),
+      ),
+    );
+    expect(err.code).toBe('ITEM_SOLD_OUT');
+    expect(err.body?.quote?.checks.map((c) => c.code)).toEqual(['ITEM_SOLD_OUT', 'TABLE_NOT_FOUND']);
+    // 同樣情境、沒有桌號：只有庫存錯誤，沒有桌號相關檢查
+    const none = await rejection(
+      h.client.orders.create(createReq([TEA()], 25, { orderType: 'DINE_IN', contact: {} }), newKey()),
+    );
+    expect(none.code).toBe('ITEM_SOLD_OUT');
+    expect(none.body?.quote?.checks.map((c) => c.code)).toEqual(['ITEM_SOLD_OUT']);
+  });
+
+  it('dineIn 型別不正確 → 400（不因缺桌號而 400）', async () => {
+    h = setup();
+    const bad = await rejection(
+      h.client.orders.create(
+        createReq([TEA()], 25, {
+          orderType: 'DINE_IN',
+          dineIn: { tableNo: 3 as unknown as string },
+          contact: {},
+        }),
+        newKey(),
+      ),
+    );
+    expect(bad.status).toBe(400);
+    expect(bad.body?.details?.map((d) => d.field)).toEqual(['dineIn.tableNo']);
+    // 內用不帶 dineIn 與聯絡資訊：格式驗證通過
+    const ok = await h.client.orders.create(
+      createReq([TEA()], 25, { orderType: 'DINE_IN', contact: {} }),
+      newKey(),
+    );
+    expect(ok.order.pickupNo).toBe('T001');
   });
 
   it('格式錯誤 → 400（欄位 details）；Idempotency-Key 缺少或格式不符', async () => {

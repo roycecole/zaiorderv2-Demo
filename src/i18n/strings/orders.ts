@@ -155,6 +155,8 @@ export const orders = {
     contact: '聯絡人',
     tableNo: (no: string) => `桌號 ${no}`,
     dineInAt: (store: string) => `內用・${store}`,
+    /** 內用可以沒有桌號：沒有桌號時以取餐號碼叫號（「內用・{店名}・取餐號碼 T001」） */
+    dineInPickupNo: (no: string) => `取餐號碼 ${no}`,
     storePhone: '店家電話',
     asap: '盡快',
     itemsSummary: (count: number, total: string) => `${count} 項・${total}`,
