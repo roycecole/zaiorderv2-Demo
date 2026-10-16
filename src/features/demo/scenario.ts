@@ -3,26 +3,11 @@ import { formatDateTime } from '@/domain/format';
 import { DEFAULT_DEMO_STATE } from '@/services/api/mock/demoControl';
 import type { DemoState, FailNext } from '@/services/api/mock/demoControl';
 import { demo as tDemo } from '@/i18n/strings/demo';
+import { armedItemCount } from './armed';
 import { FAIL_CONTINUOUS } from './constants';
 
-/** 預備中的「下一次送出」模擬項數：他人搶購 / 變售完 / 時段額滿，加上針對送出訂單的失敗注入（03 PG-18 浮動按鈕圓點） */
-export function armedItemCount(state: DemoState): number {
-  const race = state.raceOnNextCreate;
-  let n = 0;
-  if (race !== null) {
-    n +=
-      (race.soldOutProductIds?.length ?? 0) +
-      (race.buy?.length ?? 0) +
-      (race.fillSlots?.length ?? 0);
-  }
-  if (
-    state.failNext !== null &&
-    (state.failNext.target === 'orders.create' || state.failNext.target === 'any')
-  ) {
-    n += 1;
-  }
-  return n;
-}
+// 預備項數的計算放在輕量的 armed.ts（頂部列入口屬於主 bundle）；這裡重新匯出，維持原本的匯入路徑
+export { armedItemCount };
 
 export function describeFailNext(failNext: FailNext): string {
   const target = tDemo.network.failTargets[failNext.target];

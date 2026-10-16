@@ -1,9 +1,10 @@
 // FR-DM-01～13 / PG-18：Demo 面板的操作會呼叫 DemoControl、同步 runtime store 並 invalidate 查詢
 import type { QueryClient } from '@tanstack/react-query';
-import { fireEvent, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { MockInstance } from 'vitest';
+import { stubViewportWidth } from '@/features/a11y/__tests__/helpers';
 import { useSessionStore } from '@/features/auth/sessionStore';
 import { useCartStore } from '@/features/cart/cartStore';
 import { useGuestOrdersStore } from '@/features/orders/guestOrdersStore';
@@ -11,8 +12,14 @@ import { useInputModeStore } from '@/features/prefs/inputModeStore';
 import { usePrefsStore } from '@/features/prefs/prefsStore';
 import { createTestQueryClient, renderWithProviders } from '@/test/renderWithProviders';
 import DemoRoot from '../DemoRoot';
-import { createDemoApi, createFakeDemo, order } from './demoTestUtils';
+import { DemoTrigger } from '../DemoTrigger';
+import { DemoHarness, createDemoApi, createFakeDemo, order } from './demoTestUtils';
 import type { FakeDemo } from './demoTestUtils';
+
+// 頂部列的入口只在 Demo 建置出現
+vi.mock('@/config/env', async (importOriginal) => ({
+  env: { ...(await importOriginal<{ env: object }>()).env, demoMode: true },
+}));
 
 let demo: FakeDemo;
 let queryClient: QueryClient;
@@ -25,14 +32,22 @@ const invalidatedKeys = (): string[] =>
 function mount(
   initial: Parameters<typeof createFakeDemo>[0] = {},
   options: Parameters<typeof createDemoApi>[1] = {},
+  route = '/',
 ) {
   demo = createFakeDemo(initial);
   const api = createDemoApi(demo, options);
   queryClient = createTestQueryClient();
   invalidate = vi.spyOn(queryClient, 'invalidateQueries');
-  const view = renderWithProviders(<DemoRoot />, { api, queryClient });
+  const view = renderWithProviders(<DemoHarness />, { api, queryClient, route });
   return { api, ...view };
 }
+
+/** 頂部列的入口按鈕（面板開啟時背景為 aria-hidden，以屬性選取而不是 ARIA 角色） */
+const triggerEl = (): HTMLElement => {
+  const el = document.querySelector<HTMLElement>('[data-demo-trigger]');
+  if (el === null) throw new Error('找不到 Demo 入口');
+  return el;
+};
 
 async function openPanel(user = userEvent.setup()) {
   await user.click(screen.getByRole('button', { name: /^Demo 工具/ }));
@@ -65,9 +80,9 @@ afterEach(() => {
 });
 
 describe('進入條件與入口', () => {
-  it('沒有 DemoControl（HTTP 模式）時整個不渲染', () => {
+  it('沒有 DemoControl（HTTP 模式）時入口與 DemoRoot 都不渲染', () => {
     const api = createDemoApi(null);
-    const { container } = renderWithProviders(<DemoRoot />, { api });
+    const { container } = renderWithProviders(<DemoHarness />, { api });
     expect(container.querySelector('button')).toBeNull();
     expect(screen.queryByRole('button', { name: /Demo/ })).toBeNull();
   });
@@ -78,12 +93,12 @@ describe('進入條件與入口', () => {
     expect(useInputModeStore.getState().themeOverride).toBe('#2E7D4F');
   });
 
-  it('浮動入口鈕可由鍵盤操作；展開時 aria-expanded 與面板的 demoPanelOpen 旗標同步', async () => {
+  it('頂部列入口可由鍵盤操作；展開時 aria-expanded 與面板的 demoPanelOpen 旗標同步', async () => {
     mount();
-    const fab = screen.getByRole('button', { name: 'Demo 工具' });
-    expect(fab).toHaveAttribute('aria-expanded', 'false');
+    const trigger = screen.getByRole('button', { name: 'Demo 工具' });
+    expect(trigger).toHaveAttribute('aria-expanded', 'false');
     const { user } = await openPanel();
-    expect(fab).toHaveAttribute('aria-expanded', 'true');
+    expect(trigger).toHaveAttribute('aria-expanded', 'true');
     expect(useInputModeStore.getState().demoPanelOpen).toBe(true);
     await user.click(screen.getByRole('button', { name: '關閉' }));
     expect(useInputModeStore.getState().demoPanelOpen).toBe(false);
@@ -107,7 +122,7 @@ describe('進入條件與入口', () => {
     expect(await screen.findByRole('dialog', { name: 'Demo 工具' })).toBeInTheDocument();
   });
 
-  it('「已預備」項目與「下一次送出」失敗注入使浮動按鈕顯示小圓點並同步 aria-label', () => {
+  it('「已預備」項目與「下一次送出」失敗注入使入口顯示小圓點並同步 aria-label', () => {
     mount({
       raceOnNextCreate: {
         soldOutProductIds: ['prd_combo_share'],
@@ -121,11 +136,186 @@ describe('進入條件與入口', () => {
     expect(screen.getByTestId('demo-fab-dot')).toBeInTheDocument();
   });
 
-  it('外部變更（預備情境在送出時生效並清除）會於輪詢後反映在浮動按鈕', async () => {
+  it('外部變更（預備情境在送出時生效並清除）會於輪詢後反映在入口', async () => {
     mount({ failNext: { target: 'orders.create', remaining: 1 } });
     expect(screen.getByTestId('demo-fab-dot')).toBeInTheDocument();
     demo.current = { ...demo.current, failNext: null };
     await waitFor(() => expect(screen.queryByTestId('demo-fab-dot')).toBeNull(), { timeout: 3000 });
+    expect(screen.getByRole('button', { name: 'Demo 工具' })).toBeInTheDocument();
+  });
+});
+
+describe('面板開關的單一事實來源（useInputModeStore.demoPanelOpen）與焦點還原', () => {
+  let restoreViewport: (() => void) | undefined;
+  afterEach(() => {
+    restoreViewport?.();
+    restoreViewport = undefined;
+  });
+
+  it('入口在 DemoRoot（延後載入）就緒前被點了，DemoRoot 就緒後面板仍會開啟', async () => {
+    const api = createDemoApi(createFakeDemo());
+    const user = userEvent.setup();
+    const { rerender } = renderWithProviders(<DemoTrigger />, { api });
+    await user.click(screen.getByRole('button', { name: 'Demo 工具' }));
+    expect(useInputModeStore.getState().demoPanelOpen).toBe(true);
+    expect(screen.queryByRole('dialog', { name: 'Demo 工具' })).toBeNull();
+
+    rerender(<DemoHarness />);
+    expect(await screen.findByRole('dialog', { name: 'Demo 工具' })).toBeInTheDocument();
+    expect(triggerEl()).toHaveAttribute('aria-expanded', 'true');
+  });
+
+  it('面板的開關完全由 store 推導：外部設定旗標即可開關，再點入口切換', async () => {
+    mount();
+    act(() => useInputModeStore.getState().setDemoPanelOpen(true));
+    expect(await screen.findByRole('dialog', { name: 'Demo 工具' })).toBeInTheDocument();
+    expect(triggerEl()).toHaveAttribute('aria-controls', 'zaiorder-demo-panel');
+
+    act(() => useInputModeStore.getState().setDemoPanelOpen(false));
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Demo 工具' })).toBeNull());
+    expect(triggerEl()).not.toHaveAttribute('aria-controls');
+
+    act(() => useInputModeStore.getState().toggleDemoPanel());
+    expect(await screen.findByRole('dialog', { name: 'Demo 工具' })).toBeInTheDocument();
+    act(() => useInputModeStore.getState().toggleDemoPanel());
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Demo 工具' })).toBeNull());
+  });
+
+  it('面板的關閉鈕與橫幅的「開啟 Demo 工具」都操作同一個旗標', async () => {
+    mount();
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: '開啟 Demo 工具' }));
+    expect(useInputModeStore.getState().demoPanelOpen).toBe(true);
+    // 面板展開期間橫幅收起
+    expect(screen.queryByRole('region', { name: '示範站台提示' })).toBeNull();
+    await user.click(await screen.findByRole('button', { name: '關閉' }));
+    expect(useInputModeStore.getState().demoPanelOpen).toBe(false);
+  });
+
+  it('手機（底部 Sheet）：Esc 關閉後焦點回到頂部列的入口', async () => {
+    mount();
+    const user = userEvent.setup();
+    triggerEl().focus();
+    await user.keyboard('{Enter}');
+    const panel = await screen.findByRole('dialog', { name: 'Demo 工具' });
+    expect(panel).toBeInTheDocument();
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Demo 工具' })).toBeNull());
+    expect(triggerEl()).toHaveFocus();
+  });
+
+  it('桌機（左下浮動面板）：鍵盤開啟、焦點移到面板標題，Esc 與關閉鈕收合後焦點回到入口', async () => {
+    restoreViewport = stubViewportWidth(1280);
+    mount();
+    const user = userEvent.setup();
+    triggerEl().focus();
+    await user.keyboard('{Enter}');
+    const panel = await screen.findByRole('dialog', { name: 'Demo 工具' });
+    expect(panel).toHaveAttribute('aria-modal', 'false');
+    expect(within(panel).getByRole('heading', { name: 'Demo 工具' })).toHaveFocus();
+
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Demo 工具' })).toBeNull());
+    expect(triggerEl()).toHaveFocus();
+
+    await user.click(triggerEl());
+    await user.click(
+      within(await screen.findByRole('dialog', { name: 'Demo 工具' })).getByRole('button', {
+        name: '收合 Demo 工具',
+      }),
+    );
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Demo 工具' })).toBeNull());
+    expect(triggerEl()).toHaveFocus();
+  });
+
+  it('桌機：由橫幅開啟（橫幅按鈕隨之卸載）後關閉，焦點同樣回到入口', async () => {
+    restoreViewport = stubViewportWidth(1280);
+    mount();
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: '開啟 Demo 工具' }));
+    await screen.findByRole('dialog', { name: 'Demo 工具' });
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Demo 工具' })).toBeNull());
+    expect(triggerEl()).toHaveFocus();
+  });
+
+  it('桌機：再點一次入口收合（非 modal 面板，背景可操作）', async () => {
+    restoreViewport = stubViewportWidth(1280);
+    mount();
+    const user = userEvent.setup();
+    await user.click(triggerEl());
+    await screen.findByRole('dialog', { name: 'Demo 工具' });
+    await user.click(triggerEl());
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Demo 工具' })).toBeNull());
+    expect(useInputModeStore.getState().demoPanelOpen).toBe(false);
+    expect(triggerEl()).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  it('入口隨頂部列重新掛載（版面切換）後，關閉面板仍把焦點還給「目前」的入口', async () => {
+    restoreViewport = stubViewportWidth(1280);
+    const api = createDemoApi(createFakeDemo());
+    const user = userEvent.setup();
+    function Tree({ variant }: { variant: 'app' | 'task' }) {
+      // 兩種版面的頂部列各自渲染一個入口；切換時舊的卸載、新的掛載
+      return variant === 'app' ? (
+        <header key="app">
+          <DemoTrigger />
+        </header>
+      ) : (
+        <div key="task">
+          <DemoTrigger />
+        </div>
+      );
+    }
+    const { rerender } = renderWithProviders(
+      <>
+        <Tree variant="app" />
+        <DemoRoot />
+      </>,
+      { api },
+    );
+    await user.click(triggerEl());
+    await screen.findByRole('dialog', { name: 'Demo 工具' });
+    const before = triggerEl();
+
+    rerender(
+      <>
+        <Tree variant="task" />
+        <DemoRoot />
+      </>,
+    );
+    expect(triggerEl()).not.toBe(before);
+    // 版面切換期間面板維持開啟（旗標在 store，不隨外殼卸載而歸零）
+    expect(screen.getByRole('dialog', { name: 'Demo 工具' })).toBeInTheDocument();
+
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Demo 工具' })).toBeNull());
+    expect(triggerEl()).toHaveFocus();
+  });
+});
+
+describe('Demo 橫幅的顯示位置（FR-DM-07）：只在一般頁面，不蓋住任務型頁面的主要操作', () => {
+  it.each(['/', '/cart', '/store', '/orders', '/orders/lookup', '/login'])(
+    '一般頁面 %s 顯示橫幅',
+    (route) => {
+      mount({}, {}, route);
+      expect(screen.getByRole('region', { name: '示範站台提示' })).toBeInTheDocument();
+    },
+  );
+
+  it.each(['/checkout', '/checkout/', '/payment/ord_1', '/orders/ord_1', '/Orders/ord_1/'])(
+    '任務型頁面 %s（頁底有送出列 / 主要操作）不顯示橫幅，入口仍在頂部列',
+    (route) => {
+      mount({}, {}, route);
+      expect(screen.queryByRole('region', { name: '示範站台提示' })).toBeNull();
+      expect(screen.getByRole('button', { name: 'Demo 工具' })).toBeInTheDocument();
+    },
+  );
+
+  it('觸控面板模式不顯示橫幅，入口仍在（可用面板切回「自動」）', () => {
+    useInputModeStore.setState({ inputMode: 'KIOSK' });
+    mount({ inputMode: 'KIOSK' });
+    expect(screen.queryByRole('region', { name: '示範站台提示' })).toBeNull();
     expect(screen.getByRole('button', { name: 'Demo 工具' })).toBeInTheDocument();
   });
 });
@@ -486,7 +676,7 @@ describe('庫存與時段情境（FR-DM-12）', () => {
       fillSlots: [],
     });
     expect(await screen.findByText('他人會先買走 雙人分享餐 ×5')).toBeInTheDocument();
-    // 浮動按鈕提示已預備（Sheet 開啟時背景為 aria-hidden，故由圓點取得按鈕）
+    // 入口提示已預備（Sheet 開啟時背景為 aria-hidden，故由圓點取得按鈕）
     expect(screen.getByTestId('demo-fab-dot').parentElement).toHaveAttribute(
       'aria-label',
       'Demo 工具，已預備 1 項下次送出的模擬',
@@ -637,7 +827,7 @@ describe('帳號與資料', () => {
 });
 
 describe('觸控面板模式', () => {
-  it('浮動入口仍在（可改回「自動」），但不顯示橫幅、「庫存與時段情境」與「送出結果」', async () => {
+  it('頂部列的入口仍在（可改回「自動」），但不顯示橫幅、「庫存與時段情境」與「送出結果」', async () => {
     useInputModeStore.setState({ inputMode: 'KIOSK' });
     mount({ inputMode: 'KIOSK' });
     expect(screen.queryByRole('region', { name: '示範站台提示' })).toBeNull();
@@ -693,19 +883,19 @@ describe('≥ 768 的浮動面板（非 modal）', () => {
     vi.unstubAllGlobals();
   });
 
-  it('role=dialog、aria-modal=false；Esc 收合並把焦點還給浮動按鈕；背景不 inert', async () => {
+  it('role=dialog、aria-modal=false；Esc 收合並把焦點還給頂部列的入口；背景不 inert', async () => {
     mount();
     const user = userEvent.setup();
-    const fab = screen.getByRole('button', { name: 'Demo 工具' });
-    await user.click(fab);
+    const trigger = screen.getByRole('button', { name: 'Demo 工具' });
+    await user.click(trigger);
     const panel = await screen.findByRole('dialog', { name: 'Demo 工具' });
     expect(panel).toHaveAttribute('aria-modal', 'false');
     // 非 modal 的浮動面板：固定定位、不遮罩背景
     expect(panel.className).toContain('fixed');
-    expect(fab).not.toHaveAttribute('aria-hidden');
+    expect(trigger).not.toHaveAttribute('aria-hidden');
     await waitFor(() => expect(screen.getByRole('heading', { name: 'Demo 工具' })).toHaveFocus());
     await user.keyboard('{Escape}');
     expect(screen.queryByRole('dialog', { name: 'Demo 工具' })).toBeNull();
-    expect(fab).toHaveFocus();
+    expect(trigger).toHaveFocus();
   });
 });

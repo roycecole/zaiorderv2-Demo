@@ -32,6 +32,8 @@ export function removeLineWithUndo(
   deps.toast({
     message: t.cart.feedback.removed(name),
     tone: 'info',
+    // 換頁後不再保留「復原」（見 useCartFeedback）
+    dismissOnNavigate: true,
     action: {
       label: t.common.undo,
       onAction: () => {

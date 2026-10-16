@@ -37,6 +37,13 @@ export interface ToastOptions {
   politeness?: 'polite' | 'assertive';
   /** 相同 id 的 Toast 會被視為同一則（取代並重新計時），避免連續操作時堆疊 */
   id?: string;
+  /**
+   * 換頁（路由 pathname 變更）時立即關閉，預設 false。給「只對當前頁面有意義」的 Toast，
+   * 例如「已加入購物車・復原」：帶到新頁面後，「復原」會在使用者看不到變化的地方改動購物車。
+   * 要在換頁後保留的提示（登入成功、再來一單導向購物車…）不要設定。實際關閉由外殼的
+   * `useDismissToastsOnNavigate(pathname)` 呼叫 `dismissOnNavigate()` 觸發；只看 pathname，查詢字串變化不算換頁。
+   */
+  dismissOnNavigate?: boolean;
 }
 
 export interface ToastApi {
@@ -44,6 +51,11 @@ export interface ToastApi {
   toast: (options: ToastOptions | string) => string;
   /** 關閉指定 id（未指定則關閉目前顯示的那一則） */
   dismiss: (id?: string) => void;
+  /**
+   * 關閉目前顯示中、且帶有 `dismissOnNavigate` 旗標的 Toast；其他 Toast 不受影響，沒有 Toast 時不做事。
+   * 由外殼在路由 pathname 變更時呼叫（見 `useDismissToastsOnNavigate`），一般元件不需直接使用。
+   */
+  dismissOnNavigate: () => void;
 }
 
 interface ToastRecord {
@@ -54,6 +66,7 @@ interface ToastRecord {
   action: ToastAction | undefined;
   durationMs: number;
   politeness: 'polite' | 'assertive';
+  dismissOnNavigate: boolean;
 }
 
 const ToastContext = createContext<ToastApi | null>(null);
@@ -116,6 +129,7 @@ export function ToastProvider({ children, onVisibleChange }: ToastProviderProps)
       action: options.action,
       durationMs: options.durationMs ?? (options.action ? DEFAULT_MS_WITH_ACTION : DEFAULT_MS),
       politeness: options.politeness ?? (tone === 'error' ? 'assertive' : 'polite'),
+      dismissOnNavigate: options.dismissOnNavigate ?? false,
     });
     return id;
   }, []);
@@ -124,7 +138,15 @@ export function ToastProvider({ children, onVisibleChange }: ToastProviderProps)
     setCurrent((cur) => (cur !== null && (id === undefined || cur.id === id) ? null : cur));
   }, []);
 
-  const api = useMemo<ToastApi>(() => ({ toast, dismiss }), [toast, dismiss]);
+  const dismissOnNavigate = useCallback((): void => {
+    // 只清掉帶旗標的那一則；Toast 元件卸載時會一併清除它的計時器（ToastItem 以 key 區分，舊計時器不會誤關新的 Toast）
+    setCurrent((cur) => (cur !== null && cur.dismissOnNavigate ? null : cur));
+  }, []);
+
+  const api = useMemo<ToastApi>(
+    () => ({ toast, dismiss, dismissOnNavigate }),
+    [toast, dismiss, dismissOnNavigate],
+  );
 
   const closeCurrent = useCallback((key: number): void => {
     setCurrent((cur) => (cur !== null && cur.key === key ? null : cur));
@@ -137,7 +159,7 @@ export function ToastProvider({ children, onVisibleChange }: ToastProviderProps)
         <div
           data-zo-toast-viewport=""
           className={clsx(
-            'pointer-events-none fixed inset-x-0 bottom-[calc(var(--toast-offset-bottom)+var(--demo-fab-clearance,0px))] z-60 flex justify-center px-4',
+            'pointer-events-none fixed inset-x-0 bottom-(--toast-offset-bottom) z-60 flex justify-center px-4',
             'md:inset-x-auto md:right-6 md:justify-end md:px-0',
           )}
         >

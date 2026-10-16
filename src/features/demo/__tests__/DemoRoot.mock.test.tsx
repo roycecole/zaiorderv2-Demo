@@ -1,7 +1,7 @@
 // 與真正的 Mock Adapter 整合：面板的操作經 DemoControl 作用在 Mock 上，前台查詢可見其結果
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CreateOrderRequest } from '@/domain/types';
 import { useSessionStore } from '@/features/auth/sessionStore';
 import { useGuestOrdersStore } from '@/features/orders/guestOrdersStore';
@@ -11,7 +11,12 @@ import { createMockClient } from '@/services/api/mock/createMockClient';
 import type { MockClient } from '@/services/api/mock/createMockClient';
 import { getClock, setClock, systemClock } from '@/services/clock';
 import { renderWithProviders } from '@/test/renderWithProviders';
-import DemoRoot from '../DemoRoot';
+import { DemoHarness } from './demoTestUtils';
+
+// 頂部列的入口只在 Demo 建置出現
+vi.mock('@/config/env', async (importOriginal) => ({
+  env: { ...(await importOriginal<{ env: object }>()).env, demoMode: true },
+}));
 
 const T0 = Date.parse('2026-10-14T12:00:00+08:00');
 
@@ -80,7 +85,7 @@ const cashOrder = (): CreateOrderRequest => ({
 
 describe('DemoRoot + Mock Adapter', () => {
   it('「剩 2 份」寫入每日限量覆寫，菜單的 remainingToday 隨之改變', async () => {
-    renderWithProviders(<DemoRoot />, { api: client });
+    renderWithProviders(<DemoHarness />, { api: client });
     const user = await openPanelAndSection('庫存與時段情境');
     expect(
       await screen.findByText(/每日限量 5・今日已售 0・待付款保留 0・剩 5 份/),
@@ -101,7 +106,7 @@ describe('DemoRoot + Mock Adapter', () => {
   });
 
   it('他人現在下單 3 份 → 讀數的已售增加，菜單剩餘減少；清除他人訂單後恢復', async () => {
-    renderWithProviders(<DemoRoot />, { api: client });
+    renderWithProviders(<DemoHarness />, { api: client });
     const user = await openPanelAndSection('庫存與時段情境');
     const qty = await screen.findByLabelText('份數');
     await user.clear(qty);
@@ -125,7 +130,7 @@ describe('DemoRoot + Mock Adapter', () => {
       trackingToken: created.trackingToken ?? '',
       placedAt: created.order.placedAt,
     });
-    renderWithProviders(<DemoRoot />, { api: client });
+    renderWithProviders(<DemoHarness />, { api: client });
     const user = await openPanelAndSection('訂單模擬');
     await user.click(await screen.findByRole('button', { name: '接單' }));
     await waitFor(async () => {
@@ -141,7 +146,7 @@ describe('DemoRoot + Mock Adapter', () => {
   });
 
   it('快速登入示範會員：sessionStore 取得 tokens 與 user，Mock 的 me.get 可用', async () => {
-    renderWithProviders(<DemoRoot />, { api: client });
+    renderWithProviders(<DemoHarness />, { api: client });
     const user = await openPanelAndSection('帳號與資料');
     await user.click(screen.getByRole('button', { name: '快速登入示範會員' }));
     await waitFor(() => expect(useSessionStore.getState().user).not.toBeNull());
@@ -151,7 +156,7 @@ describe('DemoRoot + Mock Adapter', () => {
   });
 
   it('時間穿梭：快轉 +24 小時後 getClock() 前進，並清除已過期的購物車', async () => {
-    renderWithProviders(<DemoRoot />, { api: client });
+    renderWithProviders(<DemoHarness />, { api: client });
     const user = await openPanelAndSection('店家與時間');
     await user.click(screen.getByRole('button', { name: '快轉 +24 小時' }));
     await waitFor(() => {
@@ -162,7 +167,7 @@ describe('DemoRoot + Mock Adapter', () => {
   });
 
   it('主題色與輸入模式寫入 DemoState（持久化）與 runtime store', async () => {
-    renderWithProviders(<DemoRoot />, { api: client });
+    renderWithProviders(<DemoHarness />, { api: client });
     const user = await openPanelAndSection('菜單與外觀');
     await user.click(screen.getByRole('radio', { name: '海洋藍' }));
     await user.click(screen.getByRole('radio', { name: '觸控面板' }));

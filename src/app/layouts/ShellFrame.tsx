@@ -31,6 +31,7 @@ import { ShellFooter } from './ShellFooter';
 import { ShellHeader } from './ShellHeader';
 import { TaskHeader } from './TaskHeader';
 import { TopbarSlotContext } from './TopbarSlot';
+import { useDismissToastsOnNavigate } from './useDismissToastsOnNavigate';
 import { useDocumentAttributes } from './useDocumentAttributes';
 import { useDocumentTitle, useRouteFocus } from './useRouteFocus';
 
@@ -84,6 +85,8 @@ function ShellContent({
   useRememberQrTable();
   useDocumentTitle(info.data?.name);
   useRouteFocus(pathname);
+  // 「已加入購物車・復原」這類 Toast 只對剛才的頁面有意義：換頁就收掉（B3）
+  useDismissToastsOnNavigate(pathname);
 
   // 外殼的導覽後備：頁面沒有註冊同一動作時才執行（例如在店家頁按 m 回菜單）
   useFallbackHotkeyAction('goMenu', () => void navigate(ROUTES.home));

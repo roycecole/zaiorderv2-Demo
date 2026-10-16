@@ -1,7 +1,8 @@
 // e2e/helpers/demo.ts —— 以 Demo 工具面板預備情境（08 §4；07 §6.5）
 //
-// 面板結構：浮動按鈕「Demo 工具」→ 對話框「Demo 工具」→ 可收合區塊（h3 內的 aria-expanded 按鈕）
+// 面板結構：頂部列的 Demo 入口「Demo 工具」→ 對話框「Demo 工具」→ 可收合區塊（h3 內的 aria-expanded 按鈕）
 // → fieldset / legend 分組的單選群組（原生 radio）。≥ 768 為非 modal 浮動面板，< 768 為底部 Sheet。
+// 入口屬於主 bundle、面板由延後載入的 DemoRoot 提供：入口在 DemoRoot 就緒前被點了，就緒後面板仍會開啟。
 import { expect } from '@playwright/test';
 import type { Locator, Page } from '@playwright/test';
 

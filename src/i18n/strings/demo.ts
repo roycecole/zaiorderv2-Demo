@@ -1,11 +1,9 @@
 // src/i18n/strings/demo.ts —— Demo 工具面板文案（03 PG-18、08 §4；繁體中文・台灣用語）
+import { demoTrigger } from './demoTrigger';
+
 export const demo = {
-  fab: {
-    label: 'Demo 工具',
-    short: 'Demo',
-    /** 有預備項目或「下一次送出訂單」不是「正常」時（03 PG-18） */
-    armed: (n: number) => `Demo 工具，已預備 ${n} 項下次送出的模擬`,
-  },
+  /** 頂部列入口（DemoTrigger）：另存於 demoTrigger.ts，避免整份面板文案進主 bundle */
+  fab: demoTrigger,
 
   banner: {
     label: '示範站台提示',

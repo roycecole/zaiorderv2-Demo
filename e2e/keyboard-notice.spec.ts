@@ -23,6 +23,8 @@ const NOON_TAIPEI = '2026-10-14T12:00:00+08:00';
 async function visibleRegions(page: Page): Promise<Record<string, Locator>> {
   const candidates: Record<string, Locator> = {
     topbar: page.getByRole('banner'),
+    // 頂部列的 Demo 入口：提醒出現前後位置不變，也不被提醒遮住
+    demoTrigger: page.getByRole('banner').getByRole('button', { name: /^Demo 工具/ }),
     chips: page.getByRole('navigation', { name: '菜單分類' }),
     cta: page
       .getByRole('complementary', { name: '我的訂單' })
@@ -138,11 +140,12 @@ test.describe('UAT-27 鍵盤偵測提醒：桌機 1440×900', () => {
     expect(stateAfter.scrollWidth).toBe(stateBefore.scrollWidth);
     expect(stateAfter.scrollY).toBe(stateBefore.scrollY);
 
-    // 不遮擋 CTA；與 Demo 浮動按鈕不相交；位置 fixed
+    // 不遮擋 CTA；不遮擋頂部列的 Demo 入口與 ⌨（提醒錨定在 ⌨ 下方，Demo 入口在它左側）；位置 fixed
     const notice = await boxOf(keyboardNotice(page));
     expect(intersects(notice, after['cta']!)).toBe(false);
-    const demoFab = page.getByRole('button', { name: /^Demo 工具/ });
-    expect(intersects(notice, await boxOf(demoFab))).toBe(false);
+    expect(after['demoTrigger'], 'Demo 入口在頂部列').toBeDefined();
+    expect(intersects(notice, after['demoTrigger']!)).toBe(false);
+    expect(intersects(notice, await boxOf(helpButton(page)))).toBe(false);
     await expect(keyboardNotice(page)).toHaveCSS('position', 'fixed');
     // 仍沒有徽章（未按開啟）
     expect(await countKeyBadges(page)).toBe(0);
@@ -342,11 +345,14 @@ test.describe('UAT-27 鍵盤偵測提醒：桌機 1440×900', () => {
 });
 
 test.describe('UAT-27 鍵盤偵測提醒：平板 768 與手機 390', () => {
-  test('平板 768：提醒位於 ⌨ 下方，位置不位移且不遮擋 CartBar、Demo 浮動按鈕', async ({ page }) => {
+  test('平板 768：提醒位於 ⌨ 下方，位置不位移且不遮擋 CartBar、頂部列的 Demo 入口', async ({
+    page,
+  }) => {
     await page.setViewportSize({ width: 768, height: 1024 });
     await seedCartAndReload(page);
     const before = await captureBoxes(page);
     expect(before['cartBar']).toBeDefined();
+    expect(before['demoTrigger']).toBeDefined();
 
     await page.keyboard.press('Tab');
     await expect(keyboardNotice(page)).toBeVisible({ timeout: 1000 });
@@ -354,12 +360,11 @@ test.describe('UAT-27 鍵盤偵測提醒：平板 768 與手機 390', () => {
     for (const name of Object.keys(before)) expect(after[name], name).toEqual(before[name]);
     const notice = await boxOf(keyboardNotice(page));
     expect(intersects(notice, after['cartBar']!)).toBe(false);
-    expect(intersects(notice, await boxOf(page.getByRole('button', { name: /^Demo 工具/ })))).toBe(
-      false,
-    );
+    expect(intersects(notice, after['demoTrigger']!)).toBe(false);
+    expect(intersects(notice, await boxOf(helpButton(page)))).toBe(false);
   });
 
-  test('@mobile 手機 390：提醒在 CartBar 與底部 Tab 之上、與 Demo 浮動按鈕不相交；逾時直接收起、無圓點', async ({
+  test('@mobile 手機 390：提醒在 CartBar 與底部 Tab 之上、不遮擋頂部列的 Demo 入口與購物車圖示；逾時直接收起、無圓點', async ({
     page,
   }) => {
     await page.clock.install({ time: new Date(NOON_TAIPEI) });
@@ -379,8 +384,14 @@ test.describe('UAT-27 鍵盤偵測提醒：平板 768 與手機 390', () => {
     const noticeBox = await boxOf(notice);
     expect(intersects(noticeBox, after['cartBar']!)).toBe(false);
     expect(intersects(noticeBox, after['bottomTab']!)).toBe(false);
+    // Demo 入口在頂部列（不再是浮動鈕）：提醒與它、購物車圖示都不相交
+    expect(after['demoTrigger']).toBeDefined();
+    expect(intersects(noticeBox, after['demoTrigger']!)).toBe(false);
     expect(
-      intersects(noticeBox, await boxOf(page.getByRole('button', { name: /^Demo 工具/ }))),
+      intersects(
+        noticeBox,
+        await boxOf(page.getByRole('banner').getByRole('button', { name: /^購物車/ })),
+      ),
     ).toBe(false);
 
     await page.clock.fastForward(13_000);

@@ -18,7 +18,7 @@ export interface GotoAppOptions {
   clock?: string | null;
   /** 其他查詢參數（`table`、`mode`、`demo_fail`…） */
   params?: Record<string, string>;
-  /** true：不關閉 Demo 橫幅（它會浮在左下角，可能遮住底部的商品卡按鈕） */
+  /** true：不關閉 Demo 橫幅（它會浮在左下角、底部 Tab / CartBar 之上，可能遮住底部的商品卡按鈕；任務型頁面不顯示橫幅） */
   keepBanner?: boolean;
 }
 
@@ -34,10 +34,12 @@ export async function gotoApp(page: Page, options: GotoAppOptions = {}): Promise
   if (!keepBanner) await dismissDemoBanner(page);
 }
 
-/** 關閉 Demo 橫幅（第一次進站才會出現；觸控面板模式沒有橫幅） */
+/** 關閉 Demo 橫幅（第一次進站才會出現；觸控面板模式與任務型頁面沒有橫幅） */
 export async function dismissDemoBanner(page: Page): Promise<void> {
-  // 先等 Demo 浮動按鈕（與橫幅同一個元件樹）出現，才能確定橫幅有無
+  // Demo 入口在頂部列（主 bundle），早於延後載入的 DemoRoot（橫幅與面板）出現：
+  // 先等入口，再等 DemoRoot 的就緒標記，才能確定橫幅有無
   await expect(page.getByRole('button', { name: /^Demo 工具/ })).toBeVisible();
+  await expect(page.locator('[data-zo-demo-root]')).toBeAttached();
   const dismiss = page.getByRole('button', { name: '關閉提示' });
   if (await dismiss.isVisible()) {
     await dismiss.click();

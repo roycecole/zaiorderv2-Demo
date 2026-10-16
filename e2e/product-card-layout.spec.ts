@@ -515,7 +515,7 @@ async function shot(card: Locator, name: string): Promise<void> {
   if (SHOTS_DIR === undefined) return;
   mkdirSync(SHOTS_DIR, { recursive: true });
   await card.scrollIntoViewIfNeeded();
-  // 浮動元件（Toast、Demo 入口鈕、購物車列）可能蓋住卡片：截圖時暫時隱藏與卡片相交的固定定位元素
+  // 浮動元件（Toast、Demo 橫幅、購物車列）可能蓋住卡片：截圖時暫時隱藏與卡片相交的固定定位元素
   const hidden = await card.evaluate((el) => {
     const r = el.getBoundingClientRect();
     const touched: HTMLElement[] = [];

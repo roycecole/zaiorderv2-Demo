@@ -1,4 +1,9 @@
-// Demo 面板測試共用：假的 DemoControl 與包含它的 ApiClient
+// Demo 面板測試共用：假的 DemoControl 與包含它的 ApiClient、頂部列入口 + DemoRoot 的組合
+//
+// 使用這裡的 `DemoHarness`（或單獨渲染 `DemoTrigger`）的測試檔必須自行 mock `@/config/env`（vi.mock 只對宣告它的測試檔生效）：
+//   vi.mock('@/config/env', async (importOriginal) => ({
+//     env: { ...(await importOriginal<{ env: object }>()).env, demoMode: true },
+//   }));
 import { vi } from 'vitest';
 import type { Mock } from 'vitest';
 import type { Menu, Order, OrderSummary, PickupSlotsResponse, StoreInfo } from '@/domain/types';
@@ -6,6 +11,18 @@ import type { ApiClient } from '@/services/api/ApiClient';
 import { DEFAULT_DEMO_STATE } from '@/services/api/mock/demoControl';
 import type { DemoControl, DemoState, StockSnapshot } from '@/services/api/mock/demoControl';
 import type { CreateLogEntry } from '@/services/api/mock/requestLog';
+import DemoRoot from '../DemoRoot';
+import { DemoTrigger } from '../DemoTrigger';
+
+/** 正式環境的組合：頂部列的入口（DemoTrigger，主 bundle）+ 外殼底下的 DemoRoot（延後載入） */
+export function DemoHarness() {
+  return (
+    <>
+      <DemoTrigger />
+      <DemoRoot />
+    </>
+  );
+}
 
 export interface FakeDemo extends DemoControl {
   /** 目前狀態（直接改它可模擬「外部變更」，例如失敗注入被消耗） */

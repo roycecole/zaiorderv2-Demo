@@ -8,7 +8,7 @@ export interface DemoContextValue {
   state: DemoState;
   /** 輪詢版號：面板展開時每秒 +1，供庫存讀數與送出紀錄重讀 */
   revision: number;
-  /** 觸控面板模式（FAB 仍在，但「庫存與時段」與「送出結果」不顯示） */
+  /** 觸控面板模式（頂部列的入口仍在，但「庫存與時段」與「送出結果」不顯示） */
   kiosk: boolean;
   /**
    * 寫入 DemoState：同步 useInputModeStore（inputMode / themeOverride）、

@@ -1,7 +1,7 @@
 // src/features/demo/DemoPanel.tsx —— Demo 工具面板（CMP-30、03 PG-18）
 //
 // < 768：Bottom Sheet（高度上限 70dvh、內部捲動）；≥ 768：左下角非 modal 浮動面板（寬 360），
-// 背景仍可操作，讓展示者即時看到變更。兩者內容相同。
+// 背景仍可操作，讓展示者即時看到變更。兩者內容相同。入口在頂部列（DemoTrigger）。
 import clsx from 'clsx';
 import { X } from 'lucide-react';
 import { useEffect, useId, useRef } from 'react';
@@ -92,7 +92,7 @@ export function DemoPanelBody() {
 export interface DemoPanelShellProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** 浮動入口按鈕：關閉後焦點回到這裡 */
+  /** 頂部列的 Demo 入口：關閉後焦點回到這裡（DemoRoot 傳入的 ref 於讀取時才查詢目前的入口） */
   returnFocusRef: RefObject<HTMLElement | null>;
   children: ReactNode;
 }
@@ -137,6 +137,14 @@ export function DemoPanelShell({
   );
 }
 
+/**
+ * 把焦點還原到頂部列的 Demo 入口。目標在「關閉當下」才讀取：頂部列可能在面板開啟期間重新掛載
+ * （一般頁與任務型頁面的頂部列不同），不能沿用開啟時的元素；DemoRoot 傳入的 ref 就是為此在讀取時才查詢 DOM。
+ */
+function focusReturnTarget(ref: RefObject<HTMLElement | null>): void {
+  ref.current?.focus({ preventScroll: true });
+}
+
 function FloatingPanel({
   onClose,
   returnFocusRef,
@@ -149,10 +157,9 @@ function FloatingPanel({
   const titleId = useId();
   const titleRef = useRef<HTMLHeadingElement>(null);
 
-  // 開啟時焦點移到標題（與 Sheet 一致）；關閉時還原到浮動按鈕
+  // 開啟時焦點移到標題（與 Sheet 一致）；關閉時還原到頂部列的 Demo 入口
   useEffect(() => {
     titleRef.current?.focus({ preventScroll: true });
-    const returnTarget = returnFocusRef.current;
     return () => {
       const active = document.activeElement;
       if (
@@ -160,7 +167,7 @@ function FloatingPanel({
         active === document.body ||
         active.closest(`#${DEMO_PANEL_ID}`) !== null
       ) {
-        returnTarget?.focus({ preventScroll: true });
+        focusReturnTarget(returnFocusRef);
       }
     };
   }, [returnFocusRef]);

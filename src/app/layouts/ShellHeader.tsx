@@ -4,6 +4,7 @@
 // ≥ 768：品牌 + 營業狀態、插槽（菜單頁的搜尋）、購物車圖示（768–1023；≥ 1024 為右側訂單面板）、
 //        查詢訂單 / 我的訂單、登入 / 我的（皆 ghost，不自動彈出，BR-33）、⌨
 // 觸控面板模式：品牌 + 營業狀態 + 「大字」切換；不顯示登入、查詢訂單與鍵盤入口（03 §5.6）。
+// Demo 建置另在右側群組放 Demo 入口（DemoTrigger）：位於 ⌨ 左側（< 768 為最右）；觸控面板預覽時也在，才能切回「自動」。
 import clsx from 'clsx';
 import { ShoppingCart, Type } from 'lucide-react';
 import { Link, useLocation } from 'react-router';
@@ -11,6 +12,7 @@ import { IconButton, buttonClassName } from '@/components';
 import { KeyHint, useKeyShortcuts, useRunHotkeyAction } from '@/features/a11y';
 import { selectIsLoggedIn, useSessionStore } from '@/features/auth/sessionStore';
 import { useCartStore } from '@/features/cart/cartStore';
+import { DemoTrigger } from '@/features/demo/DemoTrigger';
 import { useIsKioskUi } from '@/features/prefs/inputModeStore';
 import { usePrefsStore } from '@/features/prefs/prefsStore';
 import { StoreBrand } from '@/features/store/StoreBrand';
@@ -76,6 +78,7 @@ export function ShellHeader({ slotRef }: ShellHeaderProps) {
             <Type aria-hidden="true" className="size-(--icon-size)" />
             {t.a11y.shell.largeText}
           </button>
+          <DemoTrigger />
         </div>
       </header>
     );
@@ -128,6 +131,7 @@ export function ShellHeader({ slotRef }: ShellHeaderProps) {
               </Link>
             </KeyHint>
           </span>
+          <DemoTrigger />
           <HelpButton />
         </div>
       </div>

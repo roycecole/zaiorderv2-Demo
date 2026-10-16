@@ -126,6 +126,8 @@ export function useCartLineActions(
     toast({
       message: t.cart.feedback.cleared,
       tone: 'info',
+      // 換頁後不再保留「復原」（見 useCartFeedback）
+      dismissOnNavigate: true,
       action: {
         label: t.common.undo,
         onAction: () => {

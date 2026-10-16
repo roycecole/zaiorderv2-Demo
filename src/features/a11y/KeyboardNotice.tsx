@@ -84,8 +84,6 @@ export function KeyboardNotice() {
         'inset-x-0 bottom-(--toast-offset-bottom) mx-auto w-[min(360px,calc(100vw-2rem))]',
         // ≥ 768：錨定於頂部 ⌨ 按鈕下方
         'md:inset-x-auto md:top-[calc(var(--topbar-h)-0.5rem)] md:right-6 md:bottom-auto md:mx-0 lg:right-8',
-        // Demo 模式：浮動槽整體上移到 Demo 浮動按鈕之上（features/demo 於 :root 公布 --demo-fab-clearance）
-        'max-md:bottom-[calc(var(--toast-offset-bottom)+var(--demo-fab-clearance,0px))]',
         'rounded-md border border-border-strong bg-bg px-3 pb-2 text-text shadow-lg',
         'forced-colors:border-[CanvasText] print:hidden',
       )}

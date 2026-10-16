@@ -32,7 +32,7 @@ async function seedIssues(page: Page): Promise<void> {
 
 /** 純鍵盤填妥姓名、手機（付款預設現金），焦點停在手機欄 */
 async function fillByKeyboard(page: Page): Promise<void> {
-  // 從頁面標題開始 Tab（Demo 面板收合後焦點在 Demo 浮動按鈕，其後沒有可 Tab 的元素）
+  // 從頁面標題開始 Tab（Demo 面板收合後焦點回到頂部列的 Demo 入口，在頁面標題之前）
   await page.evaluate(() => (document.querySelector('main h1') as HTMLElement | null)?.focus());
   await tabUntil(page, (i) => i.tag === 'INPUT' && i.name.startsWith('姓名'), {
     label: '結帳→姓名',

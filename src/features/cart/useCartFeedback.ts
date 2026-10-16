@@ -80,6 +80,8 @@ export function useCartFeedback(): CartFeedback {
             ? t.cart.feedback.addedClamped(MAX_QTY_PER_LINE)
             : t.cart.feedback.added,
         tone: 'success',
+        // 「復原」只對剛才的加入有意義：換頁（查看購物車、前往結帳…）後不再保留，避免在看不到變化的頁面改動購物車
+        dismissOnNavigate: true,
         action: {
           label: t.common.undo,
           onAction: () => {
