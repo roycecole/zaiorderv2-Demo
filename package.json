@@ -15,7 +15,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
-    "measure:bundle": "node scripts/measure-initial-js.mjs"
+    "measure:bundle": "node scripts/measure-initial-js.mjs",
+    "measure:vitals": "node scripts/measure-web-vitals.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.9.1",

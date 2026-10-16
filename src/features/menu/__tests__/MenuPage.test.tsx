@@ -1,6 +1,6 @@
 // PG-01 菜單首頁：分類、商品卡降級（BR-30 / BR-31、03 §6.7）、快速加入、數量上限與原因、售完、營業狀態、
 // 搜尋、點餐記憶（再點 / 常點）、返回鍵關閉商品面板
-import { fireEvent, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { setClock, systemClock } from '@/services/clock';
@@ -9,6 +9,7 @@ import { useCartStore } from '@/features/cart/cartStore';
 import { usePrefsStore } from '@/features/prefs/prefsStore';
 import { useInputModeStore } from '@/features/prefs/inputModeStore';
 import { LiveAnnouncer, resetAnnouncer } from '@/features/a11y';
+import { createFakeApi } from '@/test/fakeApi';
 import { renderWithProviders } from '@/test/renderWithProviders';
 import { MenuPage } from '../MenuPage';
 import {
@@ -81,6 +82,65 @@ beforeEach(() => {
 afterEach(() => {
   vi.restoreAllMocks();
   setClock(systemClock);
+});
+
+describe('首次載入：整頁骨架一次換成內容（避免版面位移，NFR-03 CLS）', () => {
+  it('店家資訊 / 營業狀態 / Banner / 菜單都回來之前只顯示骨架，不逐塊出現；回來後一起顯示', async () => {
+    let release: (() => void) | undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const base = fakeApi({
+      menu: FULL_MENU,
+      info: storeInfo({ announcement: '本週日公休，歡迎提前預約' }),
+    });
+    const slowMenu = createFakeApi({
+      store: {
+        getInfo: (...a: []) => base.store.getInfo(...a),
+        getStatus: (...a: []) => base.store.getStatus(...a),
+        getBanners: (...a: []) => base.store.getBanners(...a),
+        getProduct: (id: string) => base.store.getProduct(id),
+        getMenu: async () => {
+          await gate;
+          return FULL_MENU;
+        },
+      },
+    });
+    renderWithProviders(<MenuPage />, { api: slowMenu });
+
+    // 其他三個查詢早就回來了，但菜單還沒：不能先冒出公告、店家資訊列或搜尋框
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(screen.getByRole('status', { busy: true })).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: '店家公告' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: '店家資訊' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('searchbox')).not.toBeInTheDocument();
+
+    release?.();
+    expect(await screen.findByRole('region', { name: '店家公告' })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: '店家資訊' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 3, name: '招牌滷肉飯' })).toBeInTheDocument();
+    expect(screen.queryByRole('status', { busy: true })).not.toBeInTheDocument();
+  });
+
+  it('單向切換：內容出現後即使又重新取資料，也不會退回骨架', async () => {
+    const { queryClient } = renderMenu();
+    await screen.findByRole('heading', { level: 3, name: '招牌滷肉飯' });
+    await act(async () => {
+      await queryClient.invalidateQueries();
+    });
+    expect(screen.queryByRole('status', { busy: true })).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 3, name: '招牌滷肉飯' })).toBeInTheDocument();
+  });
+
+  it('店家公告顯示在首頁，可關閉（當日不再顯示）', async () => {
+    const user = userEvent.setup();
+    renderMenu({ info: storeInfo({ announcement: '本週日公休，歡迎提前預約' }) });
+    const region = await screen.findByRole('region', { name: '店家公告' });
+    expect(within(region).getByText('本週日公休，歡迎提前預約')).toBeInTheDocument();
+    await user.click(within(region).getByRole('button', { name: '關閉公告' }));
+    expect(screen.queryByRole('region', { name: '店家公告' })).not.toBeInTheDocument();
+    expect(usePrefsStore.getState().dismissedAnnouncement).not.toBeNull();
+  });
 });
 
 describe('版面與資料降級', () => {
@@ -350,11 +410,13 @@ describe('售完與營業狀態', () => {
     expect(await screen.findByRole('dialog', { name: '控肉飯' })).toBeInTheDocument();
   });
 
-  it('休息中：顯示說明，仍可瀏覽並加入購物車以預約（03 PG-01）', async () => {
+  it('休息中：營業狀態標籤與店家資訊列的「可預約取餐」提示，仍可瀏覽並加入購物車以預約（03 PG-01）', async () => {
     const user = userEvent.setup();
     setClock({ now: () => new Date('2026-10-14T15:00:00+08:00') });
     renderMenu({ status: CLOSED_STATUS });
-    expect(await screen.findByText('目前休息中，可預約 17:00 後取餐')).toBeInTheDocument();
+    // 不再另外插入一條提示列（會在資料回來時把整頁往下推），改為資訊列內的短提示 + 狀態標籤
+    expect(await screen.findByText('可預約取餐')).toBeInTheDocument();
+    expect(screen.queryByText('目前休息中，可預約 17:00 後取餐')).not.toBeInTheDocument();
     await user.click(await screen.findByRole('button', { name: '加入 古早味排骨飯' }));
     expect(useCartStore.getState().lines).toHaveLength(1);
   });

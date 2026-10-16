@@ -239,14 +239,10 @@ describe('AppShell：結構與入口', () => {
     expect(await screen.findByRole('dialog', { name: '鍵盤快速鍵與偏好' })).toBeInTheDocument();
   });
 
-  it('店家公告可關閉並記住', async () => {
-    const user = userEvent.setup();
+  it('外殼不顯示店家公告：公告只放在首頁，與整頁內容一起出現（避免事後把內容往下推，CLS）', async () => {
     renderTree();
-    const region = await screen.findByRole('region', { name: '店家公告' });
-    expect(within(region).getByText('本週五提早 20:00 打烊')).toBeInTheDocument();
-    await user.click(within(region).getByRole('button', { name: '關閉公告' }));
+    await screen.findByRole('heading', { name: '菜單' });
     expect(screen.queryByRole('region', { name: '店家公告' })).not.toBeInTheDocument();
-    expect(usePrefsStore.getState().dismissedAnnouncement).not.toBeNull();
   });
 
   it('TopbarSlot：頁面內容被傳送到頂部列', async () => {

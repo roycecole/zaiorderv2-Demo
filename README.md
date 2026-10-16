@@ -59,7 +59,7 @@ docs/               規格文件與設計參考原型
 
 ## Demo 與 Mock
 
-- 第一次開啟可用 Demo 面板（左下角「Demo」）：自動推進訂單、時間穿梭、付款結果與錯誤注入、庫存與時段情境、菜單完整度、品牌色預覽、輸入模式預覽、重置資料。
+- 第一次開啟可用 Demo 面板（頂部列的「Demo」入口，手機為圖示鈕）：自動推進訂單、時間穿梭、付款結果與錯誤注入、庫存與時段情境、菜單完整度、品牌色預覽、輸入模式預覽、重置資料。
 - 示範會員：手機 `0900000000`、驗證碼 `123456`；所有資料皆為虛構。
 - 網址參數（僅 Demo 模式）：`?demo_clock=`、`?demo_fail=`、`?demo_limit=`、`?demo_race=`、`?demo_fullslot=`、`?table=A3`、`?mode=kiosk`；用法見 [08 Demo 指南](./docs/08-demo-guide.md)。
 - Mock 資料存於 `localStorage`（`zaiorder:v1:*`）；面板的「重置 Demo 資料」會清除並重新載入。
@@ -116,8 +116,8 @@ npm run measure:bundle -- --dist dist/m-mock --viewport 390x844
 
 | 建置 | 調整前 | 目前 | 主要內容（gzip） |
 | --- | --- | --- | --- |
-| HTTP（非 Demo） | 221.7 kB | **191.7 kB** | react-dom 等 67.5、應用程式入口（router + query + 外殼）59.7、MenuPage 13.9、共用元件與字串 12.4 + 11.2、react-query 7.5、購物車面板 7.0 |
-| Demo（Mock + Demo 模式） | 262.5 kB | **229.2 kB** | 同上，另加 Mock Adapter 與種子資料 29.4、Demo 橫幅與入口鈕 7.6、slots 2.3 |
+| HTTP（非 Demo） | 221.7 kB | **194.9 kB** | react-dom 等 67.5、應用程式入口（router + query + 外殼）59.7、MenuPage 13.9、共用元件與字串 12.4 + 11.2、react-query 7.5、購物車面板 7.0 |
+| Demo（Mock + Demo 模式） | 262.5 kB | **231.2 kB** | 同上，另加 Mock Adapter 與種子資料 29.4、Demo 橫幅與入口鈕 7.6、slots 2.3 |
 
 做法（皆不改變行為）：
 
@@ -130,6 +130,31 @@ npm run measure:bundle -- --dist dist/m-mock --viewport 390x844
   `@/components` 主匯出**不可**re-export 浮層群組的模組（`Sheet`、`DialogTitle` 等改由 `@/components/overlay` 匯出），
   否則承載主匯出的共用 chunk 會變成依賴 Radix chunk，首屏又會載入它。
 - 觸控面板的閒置守衛、Demo 工具面板、Mock Adapter 與 HTTP Adapter 皆為動態載入，彼此不互相打包。
+
+### 首屏體驗（LCP / CLS）
+
+NFR-03 另要求 LCP ≤ 2.5 s、CLS ≤ 0.1。以 Chromium 模擬 Pixel 7、4G（1.6 Mbps、RTT 150 ms）、4× CPU，冷啟動載入首頁
+（不使用 Lighthouse，不需下載額外工具；節流設定與 Lighthouse 行動版同級）：
+
+```bash
+VITE_DATA_SOURCE=mock VITE_DEMO_MODE=false npx vite build --outDir dist/vitals --emptyOutDir
+PW_CHROMIUM_PATH=/path/to/chromium npm run measure:vitals -- --dist dist/vitals --max-lcp 2500 --max-cls 0.1
+```
+
+`e2e/layout-stability.spec.ts` 另以（不節流的）E2E 守住 CLS，避免之後又有區塊在資料回來時把內容推開。
+
+| 項目 | 調整前 | 目前 |
+| --- | --- | --- |
+| CLS（手機 / 768 / 1440，白天與夜間） | 0.24 ～ 1.0 | **0**（最大 0.0025） |
+| LCP | 2.4 ～ 2.8 s | **約 2.0 ～ 2.3 s** |
+
+做法：
+
+- **首頁整頁骨架一次換成內容**（`MenuSkeleton`、`useLatched`）：店家資訊、營業狀態、Banner 與菜單都回來之前不逐塊顯示。
+  逐塊出現（公告、店家資訊、休息中提示、Banner、分類列）會把已顯示的內容一路往下推；公告只放在首頁，休息中提示併入店家資訊列。
+- **啟動平行化**：`main.tsx` 在 React 渲染前就啟動資料來源並預取首屏資料（`app/startup.ts`），預先下載 Logo 與第一張 Banner；
+  `vite-plugins/preloadChunks.ts` 在 `index.html` 預載資料來源與首頁路由的 chunk，不再「入口 JS → 資料來源 → 路由 chunk」串聯等待；
+  路由器的 `HydrateFallback` 顯示頂部列骨架，不再整頁空白。
 
 ## 授權與聲明
 

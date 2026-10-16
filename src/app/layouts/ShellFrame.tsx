@@ -19,7 +19,6 @@ import {
 import { selectIsLoggedIn, useSessionStore } from '@/features/auth/sessionStore';
 import { useRememberQrTable } from '@/features/checkout/qrTable';
 import { useIsKioskUi } from '@/features/prefs/inputModeStore';
-import { AnnouncementBanner } from '@/features/store/AnnouncementBanner';
 import { useStoreInfo } from '@/features/store/queries';
 import { ThemeProvider } from '@/features/store/ThemeProvider';
 import { useBreakpoint } from '@/hooks/useBreakpoint';
@@ -133,9 +132,6 @@ function ShellContent({
         <TaskHeader backTo={backTo} backLabel={backLabel} />
       ) : (
         <ShellHeader slotRef={setSlot} />
-      )}
-      {isTask ? null : (
-        <AnnouncementBanner className="mx-auto w-full max-w-[1440px] px-4 pt-3 md:px-6 lg:px-8" />
       )}
       <TopbarSlotContext.Provider value={slotEl}>
         <main

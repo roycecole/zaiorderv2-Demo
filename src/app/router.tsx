@@ -10,6 +10,7 @@ import { RequireAuth } from '@/features/auth/RequireAuth';
 import { NotFoundPage } from '@/features/static/NotFoundPage';
 import { RouteErrorPage } from '@/features/static/RouteErrorPage';
 import { AppShell } from './layouts/AppShell';
+import { RouteFallback } from './layouts/RouteFallback';
 import { TaskLayout } from './layouts/TaskLayout';
 import { ROUTES } from './routes';
 
@@ -24,6 +25,8 @@ function page<M extends Record<string, unknown>, K extends keyof M & string>(
 export const routes: RouteObject[] = [
   {
     errorElement: <RouteErrorPage standalone />,
+    // 首次載入時等路由 chunk 的畫面；沒有它整頁會空白，React Router 也會在主控台警告
+    HydrateFallback: RouteFallback,
     children: [
       {
         element: <AppShell />,

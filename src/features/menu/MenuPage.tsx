@@ -14,7 +14,6 @@ import {
   Button,
   EmptyState,
   ErrorState,
-  InlineAlert,
   SkeletonCard,
   VisuallyHidden,
   useToast,
@@ -44,10 +43,12 @@ import { QrTableStrip } from '@/features/checkout/QrTableStrip';
 import { useLockOrderTypeToQrTable } from '@/features/checkout/useQrTable';
 import { useIsKioskUi } from '@/features/prefs/inputModeStore';
 import { usePrefsStore } from '@/features/prefs/prefsStore';
+import { AnnouncementBanner } from '@/features/store/AnnouncementBanner';
 import { useBanners, useMenu, useStoreInfo, useStoreStatus } from '@/features/store/queries';
 import { useApi } from '@/hooks/useApi';
 import { useBreakpoint } from '@/hooks/useBreakpoint';
 import { useClockNow } from '@/hooks/useClockNow';
+import { useLatched } from '@/hooks/useLatched';
 import { useReducedMotion } from '@/hooks/useReducedMotion';
 import { errorMessageOf } from '@/i18n/strings/errors';
 import { t } from '@/i18n/zh-TW';
@@ -56,6 +57,7 @@ import { qk } from '@/services/api/queryKeys';
 import { StoreHeader } from '@/features/store/StoreHeader';
 import { BannerCarousel } from './BannerCarousel';
 import { CategoryChips } from './CategoryChips';
+import { MenuSkeleton } from './MenuSkeleton';
 import { MenuSearchBox, SEARCH_PARAM } from './MenuSearchBox';
 import { StoreActions } from './StoreActions';
 import {
@@ -184,9 +186,20 @@ export function MenuPage({ blockAddWhen = NO_BLOCK, showSearch = true }: MenuPag
   useLockOrderTypeToQrTable();
 
   const menuQuery = useMenu();
-  const storeInfo = useStoreInfo().data;
-  const status = useStoreStatus().data ?? storeInfo?.status;
+  const infoQuery = useStoreInfo();
+  const storeInfo = infoQuery.data;
+  const statusQuery = useStoreStatus();
+  const status = statusQuery.data ?? storeInfo?.status;
   const bannersQuery = useBanners();
+  // 首次載入：店家資訊、營業狀態、Banner 與菜單都回來（成功或失敗皆算）才「一次」換成真正的內容。
+  // 逐塊出現會把已經顯示的內容一路往下推（CLS 超標）；整頁骨架被整塊換掉，不會有位移的元素。
+  // 閂鎖：只會從骨架切到內容，不會因為之後的重新取資料又退回骨架（見 useLatched）。
+  const settled = useLatched(
+    !infoQuery.isPending &&
+      !statusQuery.isPending &&
+      !bannersQuery.isPending &&
+      !menuQuery.isPending,
+  );
   const layoutOverride = usePrefsStore((s) => s.menuLayoutOverride);
   const patchPrefs = usePrefsStore((s) => s.patch);
   const lines = useCartStore((s) => s.lines);
@@ -226,7 +239,6 @@ export function MenuPage({ blockAddWhen = NO_BLOCK, showSearch = true }: MenuPag
 
   const blocked = status !== undefined && blockAddWhen.includes(status.status);
   const blockedReason = blocked ? (storeNotice(status)?.text ?? t.menu.card.addBlocked) : null;
-  const notice = storeNotice(status);
 
   // ───────── 購物車衍生值 ─────────
   const { qtyByProduct, quickByProduct } = useMemo(() => {
@@ -765,63 +777,67 @@ export function MenuPage({ blockAddWhen = NO_BLOCK, showSearch = true }: MenuPag
             {storeInfo?.name !== undefined ? t.menu.titleOf(storeInfo.name) : t.menu.title}
           </h1>
 
-          {kiosk ? null : (
-            <div className="px-4 pt-3 md:px-8">
-              <StoreHeader
-                variant={breakpoint === 'sm' ? 'card' : 'strip'}
-                announce
-                actions={<StoreActions />}
-              />
-            </div>
+          {settled ? (
+            <>
+              {/* 店家公告：只在首頁（店家門面）顯示，與其他區塊一起出現，不會事後把內容推開 */}
+              <AnnouncementBanner className="px-4 pt-3 md:px-8" />
+
+              {kiosk ? null : (
+                <div className="px-4 pt-3 md:px-8">
+                  <StoreHeader
+                    variant={breakpoint === 'sm' ? 'card' : 'strip'}
+                    announce
+                    actions={<StoreActions />}
+                  />
+                </div>
+              )}
+
+              <QrTableStrip className="px-4 pt-3 md:px-8" />
+
+              {searchInTopbar ? (
+                <TopbarSlot>
+                  <MenuSearchBox />
+                </TopbarSlot>
+              ) : showSearch ? (
+                <div className="px-4 pt-3 md:px-8">
+                  <MenuSearchBox />
+                </div>
+              ) : null}
+
+              {!searching && !showHot && banners.length > 0 ? (
+                <div className="px-4 md:px-8">
+                  <BannerCarousel
+                    banners={banners}
+                    onOpenProduct={(id) => nav.openProduct(id)}
+                    onSelectCategory={(id) => {
+                      const chip = chips.find((c) => c.id === id);
+                      if (chip !== undefined) selectChip(chip);
+                    }}
+                  />
+                </div>
+              ) : null}
+
+              {chips.length > 1 ? (
+                <CategoryChips
+                  className="mt-3"
+                  chips={chips}
+                  activeId={searching ? '' : showHot ? CHIP_HOT : activeChip}
+                  onSelect={selectChip}
+                  kiosk={kiosk}
+                  trailing={
+                    kiosk || products.length === 0 ? undefined : (
+                      <LayoutToggle layout={layout} onChange={changeLayout} />
+                    )
+                  }
+                />
+              ) : null}
+
+              {/* 最小高度：內容很少時頁尾仍在首屏之外，內容變動時頁尾不會跟著位移（CLS） */}
+              <div className="min-h-[70dvh] px-4 pb-6 md:px-8 md:pb-14">{body}</div>
+            </>
+          ) : (
+            <MenuSkeleton inlineSearch={showSearch && !searchInTopbar} kiosk={kiosk} />
           )}
-
-          <QrTableStrip className="px-4 pt-3 md:px-8" />
-
-          {notice !== null ? (
-            <div className="px-4 pt-3 md:px-8">
-              <InlineAlert tone={notice.tone}>{notice.text}</InlineAlert>
-            </div>
-          ) : null}
-
-          {searchInTopbar ? (
-            <TopbarSlot>
-              <MenuSearchBox />
-            </TopbarSlot>
-          ) : showSearch ? (
-            <div className="px-4 pt-3 md:px-8">
-              <MenuSearchBox />
-            </div>
-          ) : null}
-
-          {!searching && !showHot && banners.length > 0 ? (
-            <div className="px-4 md:px-8">
-              <BannerCarousel
-                banners={banners}
-                onOpenProduct={(id) => nav.openProduct(id)}
-                onSelectCategory={(id) => {
-                  const chip = chips.find((c) => c.id === id);
-                  if (chip !== undefined) selectChip(chip);
-                }}
-              />
-            </div>
-          ) : null}
-
-          {chips.length > 1 ? (
-            <CategoryChips
-              className="mt-3"
-              chips={chips}
-              activeId={searching ? '' : showHot ? CHIP_HOT : activeChip}
-              onSelect={selectChip}
-              kiosk={kiosk}
-              trailing={
-                kiosk || products.length === 0 ? undefined : (
-                  <LayoutToggle layout={layout} onChange={changeLayout} />
-                )
-              }
-            />
-          ) : null}
-
-          <div className="px-4 pb-6 md:px-8 md:pb-14">{body}</div>
         </div>
 
         {desktop ? <CartPanel hotkeysEnabled={!sheetOpen} /> : null}

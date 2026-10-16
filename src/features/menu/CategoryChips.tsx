@@ -136,3 +136,28 @@ export function CategoryChips({
     </nav>
   );
 }
+
+/**
+ * 分類資料回來之前的預留位置：外框與分類列相同（邊線、內距、膠囊高度 `--chip-h`），
+ * 資料回來時不會推動下方內容（CLS）。純裝飾，不進無障礙樹，也不需要 sticky。
+ */
+export function CategoryChipsSkeleton({ className }: { className?: string }) {
+  return (
+    <div
+      aria-hidden="true"
+      className={clsx('flex items-center border-b border-border bg-bg', className)}
+    >
+      <div className="min-w-0 flex-1 overflow-hidden px-4 py-2 md:px-8 md:py-3">
+        <div className="flex w-max gap-2">
+          {[64, 84, 84, 84, 84].map((width, i) => (
+            <span
+              key={i}
+              className="block h-(--chip-h) rounded-pill bg-bg-muted"
+              style={{ width }}
+            />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}

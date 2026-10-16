@@ -5,6 +5,7 @@ import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 import { SECURITY_HEADERS } from './vite-plugins/deployHeaders.ts';
 import { htmlMeta } from './vite-plugins/htmlMeta.ts';
+import { preloadChunks } from './vite-plugins/preloadChunks.ts';
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
@@ -14,6 +15,15 @@ export default defineConfig(({ mode }) => {
       react(),
       tailwindcss(),
       htmlMeta({ demo: env.VITE_DEMO_MODE === 'true', kiosk: env.VITE_KIOSK_MODE === 'true' }),
+      // 首屏一定會用到的動態 chunk（資料來源、首頁路由）跟入口 JS 同時下載，不等入口執行完才去抓（LCP）
+      preloadChunks({
+        entries: [
+          env.VITE_DATA_SOURCE === 'http'
+            ? 'src/services/api/http/createHttpClient.ts'
+            : 'src/services/api/mock/createMockClient.ts',
+          'src/features/menu/MenuPage.tsx',
+        ],
+      }),
     ],
     // `vite preview`（E2E 使用）送出與正式部署相同的安全標頭，CSP 有問題會在測試中暴露
     preview: { headers: SECURITY_HEADERS },

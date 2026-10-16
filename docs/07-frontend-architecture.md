@@ -3691,7 +3691,8 @@ export const noteSchema = z.string().trim().max(100, '備註最多 100 字');
 | 項目 | 目標 / 做法 |
 | --- | --- |
 | 預算 | LCP ≤ 2.5s、INP ≤ 200ms、CLS ≤ 0.1；首次 JS ≤ 200 KB（gzip）（NFR-03） |
-| 版面穩定 | 結帳頁首屏預留 `min-height`（以 rem 計，涵蓋兩行文字與 44 px 目標，內容可撐高）的狀態列，僅在文字縮放或使用者覆寫間距時才允許位移（WCAG 1.4.4、1.4.12）；異動清單只在送出被退回或點「查看」時展開並明確捲動；訂單明細行的狀態使用預留高度的槽（無狀態時空白佔位），右欄的送出鈕與小計位置不位移；鍵盤提醒為 `position: fixed`，顯示與收起前後主要控制項的 `getBoundingClientRect()` 差為 0（NFR-18）。LayoutShift 不計輸入後 500ms 內的位移，因此不能只靠 CLS 指標 |
+| 版面穩定 | **首頁（PG-01）首次載入以整頁骨架一次換成內容**：店家資訊、營業狀態、Banner 與菜單都回來（成功或失敗皆算）才切換，切換為單向（`useLatched`，之後的重新取資料不退回骨架）；公告橫幅只在首頁並與內容同時出現；休息中提示併入店家資訊列（不另插提示列）；清單區 `min-height: 70dvh` 使頁尾留在首屏之外。實測（Pixel 7、4G、4× CPU、冷啟動）CLS 由 0.24～1.0 降為 0。結帳頁首屏預留 `min-height`（以 rem 計，涵蓋兩行文字與 44 px 目標，內容可撐高）的狀態列，僅在文字縮放或使用者覆寫間距時才允許位移（WCAG 1.4.4、1.4.12）；異動清單只在送出被退回或點「查看」時展開並明確捲動；訂單明細行的狀態使用預留高度的槽（無狀態時空白佔位），右欄的送出鈕與小計位置不位移；鍵盤提醒為 `position: fixed`，顯示與收起前後主要控制項的 `getBoundingClientRect()` 差為 0（NFR-18）。LayoutShift 不計輸入後 500ms 內的位移，因此不能只靠 CLS 指標 |
+| 啟動 | `main.tsx` 在 React 渲染前就呼叫 `startApiBootstrap()`：載入資料來源、在時鐘就緒後判斷購物車過期、預取店家資訊與營業狀態（首頁另含菜單與 Banner；查詢選項與頁面 hook 共用，見 `features/store/queries`），並預先下載 Logo 與第一張 Banner；`vite-plugins/preloadChunks.ts` 於 `index.html` 預載資料來源與首頁路由的 chunk（含相依，排除入口本來就預載的）；路由器的 `HydrateFallback` 顯示頂部列骨架。實測 LCP 由 2.4～2.8 s 降至約 2.0～2.3 s |
 | 分割 | 路由層級 `lazy()`；`DemoPanel`、`LoginPage`、`AccountPages` 動態載入；`mock/` 於 `http` 建置不打包 |
 | 資料 | 菜單單次請求（不含選項群組）；商品詳情點擊時才取並預取（hover / 進入視窗）；`quote` 250ms debounce 並取消舊請求（`AbortSignal`） |
 | 圖片 | `loading="lazy"`、明確 `width` / `height`；無 `imageUrl` 時**不發出任何圖片請求**，佔位圖塊為純 CSS；載入失敗（`onError`）即切換為佔位；正式版以 CDN 提供 WebP/AVIF 與 `srcset` |
@@ -3796,7 +3797,7 @@ export const noteSchema = z.string().trim().max(100, '備註最多 100 字');
 | UAT-24 | `e2e/payment-hold-release.spec.ts` | LINE Pay 送出雙人分享餐 ×3（剩 5 → 2）→ 菜單剩 2 份 → 快轉 +15 分鐘 → 剩 5 份、訂單頁已取消（付款逾時）並說明已釋出；另含店家拒單立即回補；以 `page.clock` 固定時間 |
 | UAT-25 | `e2e/checkout-idempotency.spec.ts` | `?demo_fail=orders.create:AFTER_COMMIT:1`：顯示結果未知 → 再試一次只有 1 筆訂單、庫存只扣一次、取餐號碼不跳號；回應遺失後回購物車改品項備註（或數量）再回結帳送出 → 導向先前訂單並提示「稍早送出的訂單已成立」，購物車保留（訂單層級的備註不參與「內容一致」的判斷）；連點與 `Ctrl/⌘ + Enter` 並用只建立 1 筆 |
 | UAT-26 | `e2e/checkout-issues-a11y.spec.ts` | 只用 Tab / Enter / `Ctrl/⌘ + Enter` 處理清單並送出；送出被退回後焦點在標題 h2；鎖定時 `Ctrl/⌘ + Enter` 聚焦清單；動作鈕名稱含品名；成功後焦點在訂單頁標題；五個斷點無水平捲動；axe 通過；朗讀順序為手動 |
-| UAT-27 | `e2e/keyboard-notice.spec.ts` | 載入後記錄 topbar、膠囊列、前 6 張商品卡、OrderPanel CTA、CartBar、底部 Tab、頁尾的 `getBoundingClientRect` → 按 Tab → 提醒 500 ms 內出現 → 逐一比對 bounding box（容差 0）、`scrollWidth`、`scrollY` 與 `document.activeElement` 不變；提醒與 CTA、CartBar、底部 Tab 不相交（各斷點），Demo 模式另驗證與 Demo 浮動按鈕不相交（避讓規則見 03 PG-18、CMP-41）；PerformanceObserver 的 layout-shift 為 0 僅作輔助；「開啟」後徽章與 `[aria-keyshortcuts]` 出現、`c` 開購物車；「不用了」與重新整理後不再提醒；`page.clock` 快轉 25 小時出現第 2 次、第 3 次不出現；逾時後 ≥ 768 的 ⌨ 按鈕出現小圓點（`aria-label` 含「有新提示」）、點 ⌨ 後清除，< 768 直接收起、無圓點；結帳頁與 `?mode=kiosk` 不出現，且觸控面板的 `localStorage` 無 `zaiorder:v1:prefs` |
+| UAT-27 | `e2e/keyboard-notice.spec.ts` | 載入後記錄 topbar、膠囊列、前 6 張商品卡、OrderPanel CTA、CartBar、底部 Tab、頁尾的 `getBoundingClientRect` → 按 Tab → 提醒 500 ms 內出現 → 逐一比對 bounding box（容差 0）、`scrollWidth`、`scrollY` 與 `document.activeElement` 不變；提醒與 CTA、CartBar、底部 Tab 不相交（各斷點），Demo 模式另驗證與頂部列的 Demo 入口（及 ⌨）不相交，且提醒出現前後入口的位置不變（入口在頂部列，見 03 PG-18、CMP-41）；PerformanceObserver 的 layout-shift 為 0 僅作輔助；「開啟」後徽章與 `[aria-keyshortcuts]` 出現、`c` 開購物車；「不用了」與重新整理後不再提醒；`page.clock` 快轉 25 小時出現第 2 次、第 3 次不出現；逾時後 ≥ 768 的 ⌨ 按鈕出現小圓點（`aria-label` 含「有新提示」）、點 ⌨ 後清除，< 768 直接收起、無圓點；結帳頁與 `?mode=kiosk` 不出現，且觸控面板的 `localStorage` 無 `zaiorder:v1:prefs` |
 
 ---
 

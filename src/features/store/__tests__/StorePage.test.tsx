@@ -2,12 +2,13 @@ import { act, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { pageTitleStore } from '@/app/layouts/pageTitle';
+import { formatDate } from '@/domain/format';
 import type { DeliveryZone } from '@/domain/types';
 import { usePrefsStore } from '@/features/prefs/prefsStore';
-import { setClock, systemClock } from '@/services/clock';
+import { getClock, setClock, systemClock } from '@/services/clock';
 import { createFakeApi } from '@/test/fakeApi';
 import { renderWithProviders } from '@/test/renderWithProviders';
-import { AnnouncementBanner, announcementId } from '../AnnouncementBanner';
+import { AnnouncementBanner, announcementDismissKey } from '../AnnouncementBanner';
 import { StorePage } from '../StorePage';
 import { NOON_MS, makeStatus, makeStoreInfo } from './fixtures';
 
@@ -184,13 +185,40 @@ describe('AnnouncementBanner', () => {
     const { queryClient } = renderWithProviders(<AnnouncementBanner />, { api });
     await user.click(await screen.findByRole('button', { name: '關閉公告' }));
     expect(screen.queryByRole('region', { name: '店家公告' })).not.toBeInTheDocument();
-    expect(usePrefsStore.getState().dismissedAnnouncement).toBe(announcementId('本週五提早打烊'));
+    expect(usePrefsStore.getState().dismissedAnnouncement).toBe(
+      announcementDismissKey('本週五提早打烊', formatDate(getClock().now())),
+    );
 
     text = '週日全天公休';
     await act(async () => {
       await queryClient.invalidateQueries();
     });
     expect(await screen.findByText('週日全天公休')).toBeInTheDocument();
+  });
+
+  it('當日關閉後不再顯示；隔天（日期不同）再次出現（FR-ST-04）', async () => {
+    const user = userEvent.setup();
+    setClock({ now: () => new Date('2026-10-14T12:00:00+08:00') });
+    const api = createFakeApi({
+      store: { getInfo: async () => makeStoreInfo({ announcement: '本週日公休' }) },
+    });
+    const first = renderWithProviders(<AnnouncementBanner />, { api });
+    await user.click(await screen.findByRole('button', { name: '關閉公告' }));
+    expect(screen.queryByRole('region', { name: '店家公告' })).not.toBeInTheDocument();
+    first.unmount();
+
+    // 同一天重新載入：仍是關閉狀態
+    const sameDay = renderWithProviders(<AnnouncementBanner />, { api });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(screen.queryByRole('region', { name: '店家公告' })).not.toBeInTheDocument();
+    sameDay.unmount();
+
+    // 隔天：再次出現
+    setClock({ now: () => new Date('2026-10-15T12:00:00+08:00') });
+    renderWithProviders(<AnnouncementBanner />, { api });
+    expect(await screen.findByRole('region', { name: '店家公告' })).toBeInTheDocument();
   });
 
   it('沒有公告時不渲染', async () => {

@@ -26,6 +26,8 @@ function BannerSlide({
       src={banner.imageUrl}
       alt={banner.title}
       decoding="async"
+      // 第一張 Banner 通常就是 LCP 元素：提高下載優先序（NFR-03）
+      fetchPriority="high"
       draggable={false}
       onError={() => setFailedUrl(banner.imageUrl)}
       className="absolute inset-0 size-full object-cover"
@@ -109,5 +111,18 @@ export function BannerCarousel({ banners, onOpenProduct, onSelectCategory }: Ban
         </div>
       ) : null}
     </section>
+  );
+}
+
+/**
+ * Banner 資料回來之前的預留位置：尺寸與實際輪播相同（pt-4 + 固定高度的圖框，多張時再加一列控制鈕），
+ * 資料回來時不會推動下方內容（CLS）。純裝飾，不進無障礙樹。
+ */
+export function BannerSkeleton({ count }: { count: number }) {
+  return (
+    <div aria-hidden="true" className="relative pt-4">
+      <div className="block h-28 w-full rounded-lg bg-bg-muted md:h-36" />
+      {count > 1 ? <div className="mt-2 h-9" /> : null}
+    </div>
   );
 }

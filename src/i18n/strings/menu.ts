@@ -22,6 +22,8 @@ export const menu = {
   title: '菜單',
   /** 立即單的預估時間（店家資訊列） */
   eta: (min: number, max: number) => (min === max ? `預估 ${min} 分` : `預估 ${min}–${max} 分`),
+  /** 休息中的短提示（店家資訊列；原本獨立一條提示列，會在資料回來時把整頁往下推） */
+  closedHint: '可預約取餐',
   titleOf: (storeName: string) => `${storeName}・菜單`,
   loading: '菜單載入中…',
   loadError: '菜單暫時無法載入',
