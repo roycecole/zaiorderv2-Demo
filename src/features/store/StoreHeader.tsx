@@ -31,7 +31,8 @@ export function StoreHeader({ variant = 'strip', actions, announce = false, clas
       aria-label={t.store.header.sectionLabel}
       className={clsx(
         'flex flex-wrap items-center justify-between gap-x-6 gap-y-3',
-        card ? 'rounded-lg border border-border bg-bg p-3' : 'px-4 py-4 md:px-6 lg:px-8',
+        // 左右留白由放置它的版面決定（菜單頁與橫幅、分類列同一條左緣）
+        card ? 'rounded-lg border border-border bg-bg p-3' : 'py-3',
         className,
       )}
     >

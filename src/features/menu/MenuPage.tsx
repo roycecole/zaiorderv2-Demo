@@ -766,7 +766,7 @@ export function MenuPage({ blockAddWhen = NO_BLOCK, showSearch = true }: MenuPag
           </h1>
 
           {kiosk ? null : (
-            <div className={breakpoint === 'sm' ? 'px-4 pt-3' : 'px-2 pt-1 md:px-6'}>
+            <div className="px-4 pt-3 md:px-8">
               <StoreHeader
                 variant={breakpoint === 'sm' ? 'card' : 'strip'}
                 announce
