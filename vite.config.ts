@@ -3,12 +3,17 @@ import { loadEnv } from 'vite';
 import { defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
+import { htmlMeta } from './vite-plugins/htmlMeta';
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
   return {
     base: env.VITE_APP_BASE_PATH || '/',
-    plugins: [react(), tailwindcss()],
+    plugins: [
+      react(),
+      tailwindcss(),
+      htmlMeta({ demo: env.VITE_DEMO_MODE === 'true', kiosk: env.VITE_KIOSK_MODE === 'true' }),
+    ],
     resolve: {
       alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) },
     },
@@ -54,7 +59,7 @@ export default defineConfig(({ mode }) => {
         : [],
       setupFiles: ['./src/test/setup.ts'],
       css: false,
-      include: ['src/**/*.test.{ts,tsx}'],
+      include: ['src/**/*.test.{ts,tsx}', 'vite-plugins/**/*.test.ts'],
     },
   };
 });

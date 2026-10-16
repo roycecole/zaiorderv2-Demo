@@ -2,6 +2,7 @@
 // 應用程式的本機儲存入口：一般模式用 localStorage / sessionStorage（失敗降級為記憶體），
 // 觸控面板（Kiosk）模式一律僅存記憶體（BR-36、BR-37；07 §6.2）。
 import { env } from '@/config/env';
+import { launchParam } from '@/config/launchParams';
 import { createSafeStorage } from './safeStorage';
 import type { SafeStorage } from './safeStorage';
 
@@ -47,7 +48,7 @@ function detectKioskMode(): boolean {
   if (env.kiosk) return true;
   if (!env.demoMode || typeof window === 'undefined') return false;
   try {
-    const q = new URLSearchParams(window.location.search).get('mode');
+    const q = launchParam('mode');
     if (q === 'kiosk') window.sessionStorage.setItem(STORAGE_KEYS.mode, 'kiosk');
     else if (q === 'normal') window.sessionStorage.removeItem(STORAGE_KEYS.mode);
     return window.sessionStorage.getItem(STORAGE_KEYS.mode) === 'kiosk';

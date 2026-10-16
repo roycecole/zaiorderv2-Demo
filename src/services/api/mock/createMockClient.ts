@@ -2,6 +2,7 @@
 // 延遲 latencyMs ± jitter、failNext 注入、Web Locks 臨界區、時鐘覆寫（clockOverride → setClock）、
 // 自動模擬（讀取時惰性推進）與跨分頁 reload。僅 features/demo 與 app 可使用本模組。
 import { env } from '@/config/env';
+import { launchSearch } from '@/config/launchParams';
 import { createOffsetClock, getClock, setClock, systemClock } from '@/services/clock';
 import { createSafeStorage } from '@/services/storage/safeStorage';
 import type { ApiClient } from '../ApiClient';
@@ -57,8 +58,8 @@ function sessionStorageOrNull(): Storage | null {
 export function createMockClient(options: MockClientOptions): MockClient {
   const storage = options.storage ?? createSafeStorage('local');
   const demoMode = options.demoMode ?? env.demoMode;
-  const search =
-    options.search ?? (typeof window !== 'undefined' ? window.location.search : '');
+  // hash 路由模式下查詢字串可能在 `#/` 之後（見 config/launchParams）
+  const search = options.search ?? launchSearch();
 
   const demo = createDemoStateStore(storage, DEMO_STORAGE_KEY);
 

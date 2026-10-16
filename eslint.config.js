@@ -67,7 +67,7 @@ export default tseslint.config(
   },
   // 時鐘模組與測試可使用 Date.now / new Date
   {
-    files: ['src/services/clock.ts', 'src/**/*.test.{ts,tsx}', 'src/test/**', 'e2e/**', 'vite.config.ts'],
+    files: ['src/services/clock.ts', 'src/**/*.test.{ts,tsx}', 'src/test/**', 'e2e/**', 'vite.config.ts', 'vite-plugins/**'],
     rules: { 'no-restricted-properties': 'off', 'no-restricted-syntax': 'off' },
   },
   { files: ['*.config.{js,ts}', 'scripts/**/*.mjs'], languageOptions: { globals: globals.node } },
