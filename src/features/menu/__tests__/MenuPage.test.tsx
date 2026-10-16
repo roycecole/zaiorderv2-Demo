@@ -522,9 +522,15 @@ describe('點餐記憶：再點與常點（BR-35、FLOW-20）', () => {
     });
     expect(line?.snapshot).toMatchObject({ unitPrice: 67, optionLabels: ['大碗', '滷蛋'] });
     expect(screen.queryByRole('dialog')).toBeNull();
-    expect(
-      await screen.findByText('已再點：招牌滷肉飯（大碗・滷蛋）NT$ 67，目前 1 項，共 NT$ 67'),
-    ).toBeInTheDocument();
+    // 同一句話有兩份：提示（Toast）與 aria-live 播報。各自確認；不能用 screen.findByText，
+    // 兩份同時在畫面上時它會因「找到多個元素」而失敗（負載高、播報較早出現時）
+    const sentence = '已再點：招牌滷肉飯（大碗・滷蛋）NT$ 67，目前 1 項，共 NT$ 67';
+    const toastViewport = document.querySelector<HTMLElement>('[data-zo-toast-viewport]');
+    expect(toastViewport).not.toBeNull();
+    expect(await within(toastViewport as HTMLElement).findByText(sentence)).toBeInTheDocument();
+    await waitFor(() =>
+      expect(document.querySelector('[data-zo-live-announcer]')).toHaveTextContent(sentence),
+    );
   });
 
   it('記憶的選項已失效：不一鍵加入，改開面板並提示「部分選項已不提供」', async () => {

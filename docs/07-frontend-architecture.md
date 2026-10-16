@@ -3720,6 +3720,8 @@ export const noteSchema = z.string().trim().max(100, '備註最多 100 字');
 
 **測試用時鐘**：E2E 以 `page.clock` 固定時間；`?demo_clock=2026-10-14T12:00:00+08:00` 則是以該時間為起點繼續走時（不是凍結），要完全凍結請搭配 `page.clock`，並於起點後的數分鐘內完成步驟，確保營業狀態與時段可重現。鍵盤提醒的次數、24 小時間隔與計時使用真實時間（`systemClock`，§6.4），以 `page.clock` 快轉驗證；`?demo_clock` 只影響 `getClock()`。
 
+**元件測試的查詢慣例**：視覺隱藏的即時通報區（`[data-zo-live-announcer]`）會在 50 ms 後再寫一份與畫面提示（Toast）相同的文字，因此測試設定（`src/test/setup.ts`）讓 `*ByText` 預設不比對它——否則兩份同時在 DOM 時 `findByText` 會因「找到多個元素」而失敗，且只在較慢的機器上才發生；要驗證通報內容時直接查 `document.querySelector('[data-zo-live-announcer]')`（Toast 與通報各自斷言）。涉及輸入的測試以 `waitFor` / `findBy*` 等待非同步結果，不假設固定時間內完成。
+
 **單元測試重點**
 
 | 模組 | 重點案例 |

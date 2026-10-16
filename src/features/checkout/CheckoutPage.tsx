@@ -731,7 +731,13 @@ function CheckoutContent({ info }: { info: StoreInfo }) {
     // 「全部套用建議」已通報並把焦點放在已調整摘要，不再重複通報或搶焦點
     if (adjustedLatest.current !== null) return;
     announce(T.announce.allClear);
-    submitRef.current?.focus();
+    // 清單是在報價回來後才處理完（改選取餐方式、其他分頁異動…），使用者可能已經在別的欄位輸入。
+    // 清單此時已收合，焦點若原本在清單內（按下的動作鈕隨該項消失）就已遺失；只有這種情況才移到送出鈕，
+    // 不從輸入中的欄位搶走焦點（打到一半的姓名 / 手機會被截斷）。
+    const active = document.activeElement;
+    if (active === null || active === document.body || !document.contains(active)) {
+      submitRef.current?.focus();
+    }
   }, [resolvedCount, announce, adjustedLatest]);
 
   // 單項處理後的焦點（FLOW-23）：被按下的動作鈕隨該項消失，焦點不可落到 body；
@@ -1860,7 +1866,12 @@ function CheckoutContent({ info }: { info: StoreInfo }) {
           </div>
 
           {isDesktop ? (
-            <aside className="sticky top-4 flex flex-col gap-3" aria-label={T.section.summary}>
+            // 釘在 sticky 頂部列「下方」：top 小於頂部列高度時，卡片上緣會鑽到頂部列底下，位置還取決於視窗捲動量
+            // （錯誤橫幅出現 / 消失時捲動錨定改變 scrollY，卡片與送出鈕在「釘住」與「自然位置」之間跳動，點擊會落空）
+            <aside
+              className="sticky top-[calc(var(--appbar-h)+1rem)] flex flex-col gap-3"
+              aria-label={T.section.summary}
+            >
               {summaryNode}
               {submitNode}
             </aside>

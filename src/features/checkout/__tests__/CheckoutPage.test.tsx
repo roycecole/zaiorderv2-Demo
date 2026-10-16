@@ -949,6 +949,62 @@ describe('外送、內用與折扣碼', () => {
     expect(await screen.findByTestId('probe')).toHaveTextContent('/orders/');
   });
 
+  it('異動清單因改選取餐方式而處理完時，不從使用者正在輸入的欄位搶走焦點', async () => {
+    const user = userEvent.setup();
+    const { quote } = mount({
+      create: async () => {
+        throw new FakeApiError(422, 'TABLE_NOT_FOUND', '找不到桌號', {
+          quote: {
+            ...okQuote(cartLines()),
+            valid: false,
+            checks: [
+              {
+                code: 'TABLE_NOT_FOUND',
+                severity: 'ERROR',
+                message: '找不到這個桌號，請洽店員',
+                field: 'dineIn.tableNo',
+              },
+            ],
+          },
+        });
+      },
+    });
+    await user.click(await screen.findByRole('radio', { name: '內用' }));
+    await user.type(await screen.findByRole('textbox', { name: /^桌號/ }), 'z9');
+    await waitReady();
+    await user.click(submitButton());
+    await waitFor(() =>
+      expect(screen.getByRole('textbox', { name: /^桌號/ })).toHaveAttribute(
+        'aria-invalid',
+        'true',
+      ),
+    );
+
+    // 改選自取後，自取的新報價（debounce 之後才送出）還沒回來；使用者已經開始填姓名
+    const callsBefore = quote.mock.calls.length;
+    let release: (q: QuoteResponse) => void = () => undefined;
+    quote.mockImplementationOnce(
+      () =>
+        new Promise<QuoteResponse>((resolve) => {
+          release = resolve;
+        }),
+    );
+    await user.click(screen.getByRole('radio', { name: '自取' }));
+    await user.click(nameBox());
+    await user.type(nameBox(), '王小');
+    await waitFor(() => expect(quote.mock.calls.length).toBeGreaterThan(callsBefore));
+    expect(nameBox()).toHaveFocus();
+
+    // 報價回來：桌號異動隨取餐方式移除、清單處理完。焦點仍在姓名欄，接著打的字照樣進得去
+    await act(async () => {
+      release(okQuote(cartLines()));
+    });
+    await waitFor(() => expect(submitButton()).toHaveAccessibleName(/送出訂單/));
+    expect(nameBox()).toHaveFocus();
+    await user.type(nameBox(), '明');
+    expect(nameBox()).toHaveValue('王小明');
+  });
+
   it('桌號被退回後改選自取、再切回內用：桌號沒改仍是被退回的值，錯誤標示回到桌號欄', async () => {
     const user = userEvent.setup();
     const { create } = mount({
