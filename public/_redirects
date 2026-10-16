@@ -1,0 +1,2 @@
+# SPA fallback：所有找不到實際檔案的路徑都回 index.html（由前端路由處理）
+/*  /index.html  200

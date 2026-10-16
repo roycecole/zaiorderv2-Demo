@@ -64,6 +64,24 @@ docs/               規格文件與設計參考原型
 - 網址參數（僅 Demo 模式）：`?demo_clock=`、`?demo_fail=`、`?demo_limit=`、`?demo_race=`、`?demo_fullslot=`、`?table=A3`、`?mode=kiosk`；用法見 [08 Demo 指南](./docs/08-demo-guide.md)。
 - Mock 資料存於 `localStorage`（`zaiorder:v1:*`）；面板的「重置 Demo 資料」會清除並重新載入。
 
+## 部署
+
+建置產物是純靜態檔案（`dist/`），任何靜態主機都能放；專案已隨附各主機需要的設定：
+
+| 主機 | 設定 | 說明 |
+| --- | --- | --- |
+| Vercel | [`vercel.json`](vercel.json) | SPA fallback + 安全 / 快取標頭 |
+| Netlify、Cloudflare Pages | [`public/_redirects`](public/_redirects)、[`public/_headers`](public/_headers) | 建置時會被複製進 `dist/` |
+| GitHub Pages | [`.github/workflows/deploy-demo.yml`](.github/workflows/deploy-demo.yml) | 以儲存庫名稱為子路徑，複製 `404.html` 當 SPA fallback；Settings → Pages → Source 選「GitHub Actions」。Pages 無法設定回應標頭 |
+
+- **安全標頭**：CSP（`script-src 'self'`，不允許 inline / eval）、`nosniff`、`Referrer-Policy`、`Permissions-Policy`；快取：`/assets/*` 一年且不可變、`index.html` 每次驗證。定義集中在 [`vite-plugins/deployHeaders.ts`](vite-plugins/deployHeaders.ts)，E2E 在同樣的標頭下執行。
+- **串接真實 API 時**：在該檔的 `CSP_DIRECTIVES['connect-src']` 加上 API 網域，然後重新產生三個設定檔並提交：
+  ```bash
+  node --experimental-strip-types -e "import('./vite-plugins/deployHeaders.ts').then(async (m) => { const fs = await import('node:fs'); fs.writeFileSync('public/_headers', m.renderHeadersFile()); fs.writeFileSync('public/_redirects', m.renderRedirectsFile()); fs.writeFileSync('vercel.json', m.renderVercelJson()); })"
+  ```
+- **搜尋引擎**：Demo 與觸控面板建置會輸出 `noindex` 與禁止收錄的 `robots.txt`；`VITE_DEMO_MODE=false` 的正式建置可被收錄。
+- **hash 路由備案**（`VITE_ROUTER_MODE=hash`）：查詢字串寫在 `#/` 之後，例如 `https://host/repo/#/?mode=kiosk`。
+
 ## 串接真實 API
 
 1. 設定 `VITE_DATA_SOURCE=http`、`VITE_API_BASE_URL`、`VITE_STORE_SLUG`

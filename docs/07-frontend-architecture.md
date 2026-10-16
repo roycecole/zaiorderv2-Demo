@@ -3675,7 +3675,8 @@ export const noteSchema = z.string().trim().max(100, '備註最多 100 字');
 | 機敏資料 | 前端不得內嵌任何金鑰、Token、密碼；`VITE_*` 變數會被打包進瀏覽器，**不可放祕密** |
 | Token（Phase 2） | Access Token 僅存記憶體；Refresh Token 用 `HttpOnly; Secure; SameSite=Lax` Cookie。Demo 的 `localStorage` Session 僅限虛構資料 |
 | XSS | React 預設跳脫；禁用 `dangerouslySetInnerHTML`（靜態條款頁以受信任的 Markdown 轉換並淨化）；使用者輸入（備註、地址）一律當純文字顯示 |
-| CSP（建議） | `default-src 'self'; img-src 'self' data: https:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; connect-src 'self' <API 網域>; frame-ancestors 'self'; base-uri 'self'; form-action 'self'` |
+| CSP | 已落實於 `vite-plugins/deployHeaders.ts`（`public/_headers`、`vercel.json`、`vite preview` 共用同一份定義）：`default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self'; frame-ancestors 'self'; base-uri 'self'; form-action 'self'; object-src 'none'`。`script-src` 不允許 inline 與 eval；`style-src` 的 `'unsafe-inline'` 是因為 Radix 捲動鎖會注入 `<style>`；專案不載入網頁字型，故沒有 Google Fonts 來源；**串接真實 API 時請把 API 網域加進 `connect-src` 並重新產生設定檔**（見 README「部署」）。E2E（`e2e/csp.spec.ts`）在同樣的標頭下走過典型流程，出現任何 CSP 違規即失敗 |
+| 其他標頭 | `X-Content-Type-Options: nosniff`、`Referrer-Policy: strict-origin-when-cross-origin`、`Permissions-Policy: camera=(), microphone=(), geolocation=()`；`Strict-Transport-Security` 由主機（HTTPS 終止處）設定，不在靜態檔內 |
 | 轉址 | `redirect` 參數僅接受站內相對路徑（以 `/` 開頭且不為 `//`），避免開放式轉址 |
 | 付款 | 不信任導回網址參數；付款結果一律向後端查詢（FLOW-09） |
 | 第三方腳本 | 僅在 `VITE_GA_ID` 設定時載入 GA；字型以 `preconnect` 載入 |
@@ -3696,7 +3697,7 @@ export const noteSchema = z.string().trim().max(100, '備註最多 100 字');
 | 圖片 | `loading="lazy"`、明確 `width` / `height`；無 `imageUrl` 時**不發出任何圖片請求**，佔位圖塊為純 CSS；載入失敗（`onError`）即切換為佔位；正式版以 CDN 提供 WebP/AVIF 與 `srcset` |
 | 字型 | `font-display: swap`；僅載入 400 / 500 / 700 |
 | 渲染 | 商品約 30～60 筆，不需虛擬化；`ProductCard` 以 `React.memo`；避免在 scroll 事件中 setState（改用 `IntersectionObserver`） |
-| 快取 | 雜湊檔名資源 `Cache-Control: public, max-age=31536000, immutable`；`index.html` 使用 `no-cache` |
+| 快取 | 雜湊檔名資源 `Cache-Control: public, max-age=31536000, immutable`；`index.html` 使用 `no-cache`；檔名不含雜湊的圖片與圖示快取一天。已落實於 `public/_headers` 與 `vercel.json`（同一份定義，見 §14.2） |
 
 ---
 
@@ -3817,14 +3818,28 @@ flowchart LR
     Merge --> Prod["部署 Demo 正式網址"]
 ```
 
+**目前已落實**（`.github/workflows/`）：
+
+| 工作流程 | 觸發 | 內容 |
+| --- | --- | --- |
+| `ci.yml` → `verify` | Pull Request、推送主幹 | `npm ci` → `tsc` → ESLint（含分層規則）→ Vitest → `npm audit --omit=dev --audit-level=high` → 建置（Mock + Demo、HTTP 非 Demo）→ 首次載入 JS 預算（`scripts/measure-initial-js.mjs --budget 200`） |
+| `ci.yml` → `e2e` | 同上 | Playwright（Chromium：`desktop` 與 `@mobile`），失敗時上傳報告與 trace |
+| `ci.yml` → `e2e-cross-browser` | 同上（**不阻擋**） | WebKit 與 Firefox 冒煙（`E2E_CROSS_BROWSER=1`）；穩定後再改為必要檢查（NFR-02） |
+| `deploy-demo.yml` | 推送主幹、手動 | 建置 Demo（子路徑 = 儲存庫名稱）→ 複製 `404.html` → 部署 GitHub Pages |
+| `dependabot.yml` | 每週（npm）、每月（Actions） | 次版號與修補版合併為一個 PR；ESLint 主版號暫不升級（等 `eslint-plugin-jsx-a11y` 支援 10） |
+
+尚未納入：Lighthouse CI（需決定量測環境與門檻）、預覽環境部署。
+
 ### 14.2 靜態主機設定
 
-| 主機 | SPA fallback | 備註 |
-| --- | --- | --- |
-| Vercel | `vercel.json`：`{ "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }] }` | 預設可用 |
-| Netlify | `public/_redirects`：`/* /index.html 200` | |
-| Cloudflare Pages | 內建 SPA 支援 | 無須設定 |
-| GitHub Pages | 建置後複製 `index.html` 為 `404.html`，並設定 `VITE_APP_BASE_PATH=/<repo>/` | 或使用 `VITE_ROUTER_MODE=hash` |
+| 主機 | SPA fallback | 標頭（安全 + 快取） | 備註 |
+| --- | --- | --- | --- |
+| Vercel | `vercel.json` 的 `rewrites`（隨附） | `vercel.json` 的 `headers`（隨附） | 專案根目錄即可使用 |
+| Netlify | `public/_redirects`：`/*  /index.html  200`（隨附） | `public/_headers`（隨附） | |
+| Cloudflare Pages | 內建 SPA 支援（也可沿用 `_redirects`） | 沿用 `public/_headers` | |
+| GitHub Pages | 建置後複製 `index.html` 為 `404.html`（`deploy-demo.yml` 已處理），並設定 `VITE_APP_BASE_PATH=/<repo>/` | **無法設定回應標頭**（CSP 等不生效） | 或使用 `VITE_ROUTER_MODE=hash`；hash 模式下查詢字串寫在 `#/` 之後（`/#/?mode=kiosk`），`?mode`、`?demo_*` 寫在 `#` 之前也有效 |
+
+`public/_headers`、`public/_redirects` 與 `vercel.json` 都由 `vite-plugins/deployHeaders.ts` 的同一份定義產生；`vite-plugins/__tests__/deployHeaders.test.ts` 確保三者與定義一致，`vite preview`（E2E 使用）也送出同樣的標頭。子路徑部署時，`_headers` 的路徑需加上子路徑前綴。
 
 ### 14.3 建置指令（建議）
 
