@@ -72,7 +72,7 @@ docs/               規格文件與設計參考原型
 | --- | --- | --- |
 | Vercel | [`vercel.json`](vercel.json) | SPA fallback + 安全 / 快取標頭 |
 | Netlify、Cloudflare Pages | [`public/_redirects`](public/_redirects)、[`public/_headers`](public/_headers) | 建置時會被複製進 `dist/` |
-| GitHub Pages | [`.github/workflows/deploy-demo.yml`](.github/workflows/deploy-demo.yml) | 以儲存庫名稱為子路徑，複製 `404.html` 當 SPA fallback；Settings → Pages → Source 選「GitHub Actions」。Pages 無法設定回應標頭 |
+| GitHub Pages | （不隨附工作流程） | 以 `VITE_APP_BASE_PATH=/<儲存庫名稱>/` 建置，把 `dist/index.html` 複製為 `dist/404.html` 當 SPA fallback，再自行發佈 `dist/`（例如推到 `gh-pages` 分支）。Pages 無法設定回應標頭 |
 
 - **安全標頭**：CSP（`script-src 'self'`，不允許 inline / eval）、`nosniff`、`Referrer-Policy`、`Permissions-Policy`；快取：`/assets/*` 一年且不可變、`index.html` 每次驗證。定義集中在 [`vite-plugins/deployHeaders.ts`](vite-plugins/deployHeaders.ts)，E2E 在同樣的標頭下執行。
 - **串接真實 API 時**：在該檔的 `CSP_DIRECTIVES['connect-src']` 加上 API 網域，然後重新產生三個設定檔並提交：
@@ -97,6 +97,29 @@ npm run test:e2e -- --project=desktop
 ```
 
 Playwright 會自動建置並預覽 Demo 版本；同時執行多組時以 `E2E_PORT`、`E2E_OUT_DIR` 區隔埠與輸出目錄。
+
+## 本機驗證
+
+專案不使用 GitHub Actions，也沒有隨附其他 CI 設定；推送或合併前在本機依序執行：
+
+```bash
+npm run typecheck                         # tsc（strict）
+npm run lint                              # ESLint，含分層依賴規則
+npm test                                  # Vitest：單元與元件測試
+npm audit --omit=dev --audit-level=high   # 正式相依套件的弱點（high 以上）
+npm run build:demo                        # Mock + Demo 建置
+VITE_DATA_SOURCE=http VITE_DEMO_MODE=false npx vite build --outDir dist/m-http --emptyOutDir
+npm run measure:bundle -- --dist dist/m-http --budget 200   # 首次載入 JS ≤ 200 kB gzip（見「首次載入預算」）
+npm run test:e2e -- --project=desktop --project=mobile      # Playwright（Chromium；PW_CHROMIUM_PATH 見上一節）
+```
+
+Safari / Firefox 冒煙（NFR-02，需先 `npx playwright install webkit firefox`）：
+
+```bash
+E2E_CROSS_BROWSER=1 npx playwright test e2e/smoke.spec.ts e2e/quick-pickup.spec.ts e2e/csp.spec.ts e2e/keyboard-only.spec.ts --project=webkit --project=firefox
+```
+
+`.github/dependabot.yml` 只保留 npm 相依套件的每週更新 PR；不需要時刪除該檔即可。
 
 ## 首次載入預算
 

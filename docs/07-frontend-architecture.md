@@ -165,7 +165,7 @@ flowchart TB
     Mock --> LS[("localStorage")]
 ```
 
-**依賴規則**（以 `eslint.config.js` 的 `no-restricted-imports` 逐層覆寫強制，違反即 CI 失敗）：
+**依賴規則**（以 `eslint.config.js` 的 `no-restricted-imports` 逐層覆寫強制，違反即 `npm run lint` 失敗）：
 
 | 層 | 可以依賴 | 不可依賴 |
 | --- | --- | --- |
@@ -3680,7 +3680,7 @@ export const noteSchema = z.string().trim().max(100, '備註最多 100 字');
 | 轉址 | `redirect` 參數僅接受站內相對路徑（以 `/` 開頭且不為 `//`），避免開放式轉址 |
 | 付款 | 不信任導回網址參數；付款結果一律向後端查詢（FLOW-09） |
 | 第三方腳本 | 僅在 `VITE_GA_ID` 設定時載入 GA；字型以 `preconnect` 載入 |
-| 相依套件 | CI 執行 `npm audit`；鎖定 lockfile |
+| 相依套件 | 推送前執行 `npm audit`（§14.1）；鎖定 lockfile |
 | 個資 | 日誌與錯誤追蹤遮罩手機與地址；URL 不放個資（`?table`、`?product` 除外） |
 | Demo 站台 | 加入 `noindex`（`<meta name="robots" content="noindex">`），避免被搜尋引擎收錄 |
 
@@ -3805,7 +3805,9 @@ export const noteSchema = z.string().trim().max(100, '備註最多 100 字');
 
 ## 14. 建置、部署與環境
 
-### 14.1 CI / CD
+### 14.1 檢查與發佈流程
+
+本專案**不使用 GitHub Actions**，儲存庫也沒有隨附其他 CI 設定；下列檢查由開發者在推送或合併前於本機執行（指令見 README「本機驗證」）。日後若導入 CI（任何平台），建議的流程如下：
 
 ```mermaid
 flowchart LR
@@ -3821,17 +3823,22 @@ flowchart LR
     Merge --> Prod["部署 Demo 正式網址"]
 ```
 
-**目前已落實**（`.github/workflows/`）：
+**目前的本機檢查**：
 
-| 工作流程 | 觸發 | 內容 |
-| --- | --- | --- |
-| `ci.yml` → `verify` | Pull Request、推送主幹 | `npm ci` → `tsc` → ESLint（含分層規則）→ Vitest → `npm audit --omit=dev --audit-level=high` → 建置（Mock + Demo、HTTP 非 Demo）→ 首次載入 JS 預算（`scripts/measure-initial-js.mjs --budget 200`） |
-| `ci.yml` → `e2e` | 同上 | Playwright（Chromium：`desktop` 與 `@mobile`），失敗時上傳報告與 trace |
-| `ci.yml` → `e2e-cross-browser` | 同上（**不阻擋**） | WebKit 與 Firefox 冒煙（`E2E_CROSS_BROWSER=1`）；穩定後再改為必要檢查（NFR-02） |
-| `deploy-demo.yml` | 推送主幹、手動 | 建置 Demo（子路徑 = 儲存庫名稱）→ 複製 `404.html` → 部署 GitHub Pages |
-| `dependabot.yml` | 每週（npm）、每月（Actions） | 次版號與修補版合併為一個 PR；ESLint 主版號暫不升級（等 `eslint-plugin-jsx-a11y` 支援 10） |
+| 指令 | 內容 |
+| --- | --- |
+| `npm run typecheck` | `tsc --noEmit`（strict） |
+| `npm run lint` | ESLint，含分層依賴規則（違反即失敗） |
+| `npm test` | Vitest：單元與元件測試 |
+| `npm audit --omit=dev --audit-level=high` | 正式相依套件的弱點（high 以上） |
+| `npm run build:demo`；`VITE_DATA_SOURCE=http VITE_DEMO_MODE=false npx vite build` | Mock + Demo 與 HTTP（非 Demo）兩種建置都須成功 |
+| `npm run measure:bundle -- --dist <HTTP 建置> --budget 200` | 首次載入 JS ≤ 200 kB gzip（NFR-03）；`npm run measure:vitals` 量 LCP / CLS |
+| `npm run test:e2e -- --project=desktop --project=mobile` | Playwright（Chromium：`desktop` 與 `@mobile`） |
+| `E2E_CROSS_BROWSER=1 npx playwright test … --project=webkit --project=firefox` | WebKit 與 Firefox 冒煙（NFR-02；需先安裝這兩個瀏覽器） |
 
-尚未納入：Lighthouse CI（需決定量測環境與門檻）、預覽環境部署。
+`.github/dependabot.yml` 只保留 npm 的每週更新（次版號與修補版合併為一個 PR；ESLint 主版號暫不升級，等 `eslint-plugin-jsx-a11y` 支援 10）。
+
+尚未納入：自動化 CI、Lighthouse CI（需決定量測環境與門檻）、預覽環境部署。
 
 ### 14.2 靜態主機設定
 
@@ -3840,7 +3847,7 @@ flowchart LR
 | Vercel | `vercel.json` 的 `rewrites`（隨附） | `vercel.json` 的 `headers`（隨附） | 專案根目錄即可使用 |
 | Netlify | `public/_redirects`：`/*  /index.html  200`（隨附） | `public/_headers`（隨附） | |
 | Cloudflare Pages | 內建 SPA 支援（也可沿用 `_redirects`） | 沿用 `public/_headers` | |
-| GitHub Pages | 建置後複製 `index.html` 為 `404.html`（`deploy-demo.yml` 已處理），並設定 `VITE_APP_BASE_PATH=/<repo>/` | **無法設定回應標頭**（CSP 等不生效） | 或使用 `VITE_ROUTER_MODE=hash`；hash 模式下查詢字串寫在 `#/` 之後（`/#/?mode=kiosk`），`?mode`、`?demo_*` 寫在 `#` 之前也有效 |
+| GitHub Pages | 建置後把 `index.html` 複製為 `404.html`（不隨附工作流程，需自行處理），並設定 `VITE_APP_BASE_PATH=/<repo>/` | **無法設定回應標頭**（CSP 等不生效） | 或使用 `VITE_ROUTER_MODE=hash`；hash 模式下查詢字串寫在 `#/` 之後（`/#/?mode=kiosk`），`?mode`、`?demo_*` 寫在 `#` 之前也有效 |
 
 `public/_headers`、`public/_redirects` 與 `vercel.json` 都由 `vite-plugins/deployHeaders.ts` 的同一份定義產生；`vite-plugins/__tests__/deployHeaders.test.ts` 確保三者與定義一致，`vite preview`（E2E 使用）也送出同樣的標頭。子路徑部署時，`_headers` 的路徑需加上子路徑前綴。
 

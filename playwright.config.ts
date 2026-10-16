@@ -8,7 +8,7 @@ const OUT_DIR = process.env.E2E_OUT_DIR ?? 'dist';
 const chromiumLaunch = process.env.PW_CHROMIUM_PATH
   ? { executablePath: process.env.PW_CHROMIUM_PATH }
   : {};
-// NFR-02：Safari / Firefox 冒煙測試。需先 `npx playwright install webkit firefox`；CI 以不阻擋的工作執行（見 .github/workflows/ci.yml）
+// NFR-02：Safari / Firefox 冒煙測試。需先 `npx playwright install webkit firefox`，並以 E2E_CROSS_BROWSER=1 啟用（指令見 README「本機驗證」）
 const crossBrowser = process.env.E2E_CROSS_BROWSER === '1';
 
 export default defineConfig({
